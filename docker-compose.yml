@@ -6,6 +6,14 @@ services:
       context: ./backend
     env_file:
       - ./backend/.env
+    environment:
+      # Force DB_HOST to use Docker service name (overrides .env if present)
+      - DB_HOST=db
+      # Use values from .env or defaults
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-aa_denis_fleet}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-password}
     ports:
       - "8000:8000"
     depends_on:
