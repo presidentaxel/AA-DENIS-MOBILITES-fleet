@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import AnyUrl, Field
+from pydantic import AnyUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,10 +20,18 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_access_token_expire_minutes: int = Field(default=60, alias="JWT_ACCESS_TOKEN_EXPIRE_MINUTES")
 
-    supabase_url: Optional[AnyUrl] = Field(default=None, alias="SUPABASE_URL")
+    supabase_url: Optional[str] = Field(default=None, alias="SUPABASE_URL")
     supabase_anon_key: Optional[str] = Field(default=None, alias="SUPABASE_ANON_KEY")
     supabase_service_role_key: Optional[str] = Field(default=None, alias="SUPABASE_SERVICE_ROLE_KEY")
     supabase_jwt_secret: Optional[str] = Field(default=None, alias="SUPABASE_JWT_SECRET")
+
+    @field_validator("supabase_url", mode="before")
+    @classmethod
+    def validate_supabase_url(cls, v: str | None) -> str | None:
+        """Convert empty string to None for optional URL."""
+        if v == "":
+            return None
+        return v
 
     uber_client_id: Optional[str] = Field(default=None, alias="UBER_CLIENT_ID")
     uber_client_secret: Optional[str] = Field(default=None, alias="UBER_CLIENT_SECRET")
