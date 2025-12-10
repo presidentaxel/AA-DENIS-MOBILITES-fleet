@@ -23,6 +23,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Instrument Prometheus before app starts (must be before routers)
+    Instrumentator().instrument(app).expose(app, include_in_schema=False)
+
     app.include_router(auth_router, prefix="/auth", tags=["auth"])
     app.include_router(fleet_router, prefix="/fleet", tags=["fleet"])
     app.include_router(bolt_router, tags=["bolt"])
@@ -32,7 +35,6 @@ def create_app() -> FastAPI:
     def on_startup() -> None:
         # For dev/local: ensure tables exist. In Supabase, prefer managed migrations with RLS.
         Base.metadata.create_all(bind=engine)
-        Instrumentator().instrument(app).expose(app, include_in_schema=False)
 
     return app
 
