@@ -12,14 +12,16 @@ class BoltClient:
     def __init__(self):
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0.0
-        self._client = httpx.Client(base_url=settings.bolt_base_url, timeout=20)
+        # Convertir AnyUrl en str pour httpx
+        self._client = httpx.Client(base_url=str(settings.bolt_base_url), timeout=20)
 
     def _get_token(self) -> str:
         if self._access_token and time.time() < self._token_expires_at - 30:
             return self._access_token
         # Bolt uses form-urlencoded with scope
+        # Convertir AnyUrl en str pour httpx
         resp = httpx.post(
-            settings.bolt_auth_url,
+            str(settings.bolt_auth_url),
             data={
                 "grant_type": "client_credentials",
                 "scope": "fleet-integration:api",

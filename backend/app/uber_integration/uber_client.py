@@ -13,14 +13,16 @@ class UberClient:
     def __init__(self):
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0.0
-        self._client = httpx.Client(base_url=settings.uber_base_url, timeout=15)
+        # Convertir AnyUrl en str pour httpx
+        self._client = httpx.Client(base_url=str(settings.uber_base_url), timeout=15)
 
     def _get_token(self) -> str:
         if self._access_token and time.time() < self._token_expires_at - 30:
             return self._access_token
 
+        # Convertir AnyUrl en str pour httpx
         response = httpx.post(
-            settings.uber_auth_url,
+            str(settings.uber_auth_url),
             data={"grant_type": "client_credentials", "scope": " ".join(SUPPLIER_SCOPES)},
             auth=(settings.uber_client_id or "", settings.uber_client_secret or ""),
         )
