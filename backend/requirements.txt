@@ -11,6 +11,6 @@ psycopg2-binary==2.9.9
 python-jose==3.3.0
 passlib[bcrypt]==1.7.4
 apscheduler==3.10.4
-supabase==2.10.1
+supabase==2.11.0
 prometheus-fastapi-instrumentator==6.1.0
 
