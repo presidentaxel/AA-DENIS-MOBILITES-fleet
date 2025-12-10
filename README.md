@@ -102,7 +102,7 @@ DB_HOST=; DB_PORT=5432; DB_NAME=; DB_USER=; DB_PASSWORD=
 JWT_SECRET=; JWT_ALGORITHM=HS256; JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 SUPABASE_URL=; SUPABASE_ANON_KEY=; SUPABASE_SERVICE_ROLE_KEY=; SUPABASE_JWT_SECRET=
 UBER_CLIENT_ID=; UBER_CLIENT_SECRET=; UBER_BASE_URL=https://api.uber.com; UBER_AUTH_URL=https://auth.uber.com/oauth/v2/token; UBER_DEFAULT_ORG_ID=
-BOLT_CLIENT_ID=; BOLT_CLIENT_SECRET=; BOLT_BASE_URL=https://api.bolt.com; BOLT_AUTH_URL=https://auth.bolt.com/oauth/token; BOLT_DEFAULT_FLEET_ID=
+BOLT_CLIENT_ID=; BOLT_CLIENT_SECRET=; BOLT_BASE_URL=https://api.bolt.eu; BOLT_AUTH_URL=https://oidc.bolt.eu/token; BOLT_DEFAULT_FLEET_ID=
 ```
 Frontend (`frontend/.env.example`) :
 ```
@@ -417,8 +417,8 @@ SUPABASE_JWT_SECRET=  # Optionnel, voir docs/SUPABASE_SETUP.md
 # Bolt API
 BOLT_CLIENT_ID=
 BOLT_CLIENT_SECRET=
-BOLT_BASE_URL=https://api.bolt.com
-BOLT_AUTH_URL=https://auth.bolt.com/oauth/token
+BOLT_BASE_URL=https://api.bolt.eu
+BOLT_AUTH_URL=https://oidc.bolt.eu/token
 BOLT_DEFAULT_FLEET_ID=
 ```
 
