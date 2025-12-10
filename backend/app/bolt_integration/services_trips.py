@@ -22,7 +22,7 @@ def sync_trips(db: Session, client: BoltClient, driver_id: str | None = None, st
         db.merge(
             BoltTrip(
                 id=t["id"],
-                org_id=settings.uber_default_org_id or "default_org",
+                org_id=settings.bolt_default_fleet_id or settings.uber_default_org_id or "default_org",
                 driver_id=t.get("driver_id"),
                 start_time=datetime.fromisoformat(t["start_time"]),
                 end_time=datetime.fromisoformat(t["end_time"]),

@@ -14,7 +14,7 @@ def sync_vehicles(db: Session, client: BoltClient) -> None:
         db.merge(
             BoltVehicle(
                 id=v["id"],
-                org_id=settings.uber_default_org_id or "default_org",
+                org_id=settings.bolt_default_fleet_id or settings.uber_default_org_id or "default_org",
                 plate=v.get("license_plate", ""),
                 model=v.get("model"),
                 provider_vehicle_id=v.get("id"),

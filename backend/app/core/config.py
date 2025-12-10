@@ -41,8 +41,8 @@ class Settings(BaseSettings):
 
     bolt_client_id: Optional[str] = Field(default=None, alias="BOLT_CLIENT_ID")
     bolt_client_secret: Optional[str] = Field(default=None, alias="BOLT_CLIENT_SECRET")
-    bolt_base_url: AnyUrl = Field(default="https://api.bolt.com", alias="BOLT_BASE_URL")
-    bolt_auth_url: AnyUrl = Field(default="https://auth.bolt.com/oauth/token", alias="BOLT_AUTH_URL")
+    bolt_base_url: AnyUrl = Field(default="https://api.bolt.eu", alias="BOLT_BASE_URL")
+    bolt_auth_url: AnyUrl = Field(default="https://oidc.bolt.eu/token", alias="BOLT_AUTH_URL")
     bolt_default_fleet_id: Optional[str] = Field(default=None, alias="BOLT_DEFAULT_FLEET_ID")
 
     @property

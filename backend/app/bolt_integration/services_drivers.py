@@ -14,7 +14,7 @@ def sync_drivers(db: Session, client: BoltClient) -> None:
         db.merge(
             BoltDriver(
                 id=d["id"],
-                org_id=settings.uber_default_org_id or "default_org",
+                org_id=settings.bolt_default_fleet_id or settings.uber_default_org_id or "default_org",
                 first_name=d.get("first_name", ""),
                 last_name=d.get("last_name", ""),
                 email=d.get("email"),

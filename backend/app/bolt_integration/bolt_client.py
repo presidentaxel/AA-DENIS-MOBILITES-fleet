@@ -17,15 +17,21 @@ class BoltClient:
     def _get_token(self) -> str:
         if self._access_token and time.time() < self._token_expires_at - 30:
             return self._access_token
+        # Bolt uses form-urlencoded with scope
         resp = httpx.post(
             settings.bolt_auth_url,
-            data={"grant_type": "client_credentials"},
+            data={
+                "grant_type": "client_credentials",
+                "scope": "fleet-integration:api",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
             auth=(settings.bolt_client_id or "", settings.bolt_client_secret or ""),
         )
         resp.raise_for_status()
         data = resp.json()
         self._access_token = data["access_token"]
-        self._token_expires_at = time.time() + data.get("expires_in", 3600)
+        # Bolt tokens expire in 10 minutes (600 seconds)
+        self._token_expires_at = time.time() + data.get("expires_in", 600)
         return self._access_token
 
     def _headers(self) -> Dict[str, str]:

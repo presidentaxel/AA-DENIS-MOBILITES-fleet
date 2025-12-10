@@ -22,7 +22,7 @@ def sync_earnings(db: Session, client: BoltClient, driver_id: str | None = None,
         db.merge(
             BoltEarning(
                 id=e["id"],
-                org_id=settings.uber_default_org_id or "default_org",
+                org_id=settings.bolt_default_fleet_id or settings.uber_default_org_id or "default_org",
                 driver_id=e.get("driver_id"),
                 payout_date=datetime.fromisoformat(e["payout_date"]),
                 amount=e.get("amount", 0),
