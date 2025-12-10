@@ -1,3 +1,148 @@
+# AA DENIS MOBILITÉS – Fleet Manager API (Uber + Bolt)
+
+API REST sécurisée pour agréger les données de flotte depuis Uber (Supplier/Fleet) et Bolt Fleet Integration, les stocker en base interne (PostgreSQL/Supabase) et les exposer à un frontend. Front minimal fourni (React/Vite). Les credentials Uber/Bolt restent backend-only.
+
+## 1. Objectifs
+- Synchroniser automatiquement Uber & Bolt (chauffeurs, véhicules, trajets/metrics, paiements/earnings).
+- Stockage local (PostgreSQL / Supabase avec RLS org-scopée).
+- API REST unifiée : `/fleet/...` (Uber) et `/bolt/...` (Bolt).
+- Auth interne JWT (front → backend).
+
+## 2. Architecture (vue d’ensemble)
+- **backend/** FastAPI, auth JWT, intégrations Uber+Bolt, APScheduler, Alembic, Prometheus.
+- **frontend/** React + Vite + TS (login, drivers, metrics/payments/trips/earnings).
+- **monitoring/** Prometheus + Grafana (dashboards provisionnés).
+- **docker-compose** services séparés (backend, frontend, db, prom, grafana) + option Traefik TLS.
+
+## 3. Arborescence (extrait)
+```
+backend/
+  app/
+    main.py
+    core/ (config, db, security, logging)
+    auth/ (routes_auth.py, service_auth.py)
+    api/
+      deps.py
+      router_fleet.py
+      router_bolt.py
+      endpoints/
+        fleet_orgs.py, fleet_drivers.py, fleet_vehicles.py, fleet_metrics.py, fleet_payments.py, sync.py
+        bolt_drivers.py, bolt_vehicles.py, bolt_trips.py, bolt_earnings.py
+    uber_integration/
+      uber_client.py, uber_scopes.py
+      services_orgs.py, services_drivers.py, services_vehicles.py, services_metrics.py, services_payments.py, services_reports.py
+    bolt_integration/
+      bolt_client.py, bolt_scopes.py
+      services_orgs.py, services_drivers.py, services_vehicles.py, services_trips.py, services_earnings.py
+    models/
+      org.py, driver.py, vehicle.py, driver_metrics.py, driver_payments.py
+      bolt_driver.py, bolt_vehicle.py, bolt_trip.py, bolt_earning.py
+    schemas/
+      auth.py, org.py, driver.py, vehicle.py, metrics.py, payments.py
+      bolt_driver.py, bolt_vehicle.py, bolt_trip.py, bolt_earning.py
+    jobs/
+      scheduler.py
+      job_sync_orgs.py, job_sync_drivers.py, job_sync_vehicles.py, job_sync_metrics.py, job_sync_payments.py
+      job_sync_bolt_drivers.py, job_sync_bolt_vehicles.py, job_sync_bolt_trips.py, job_sync_bolt_earnings.py
+    tests/
+      test_auth.py, test_env_examples.py, test_scopes.py,
+      test_endpoints_unit.py, test_services_sync.py, test_uber_client.py, test_fleet_endpoints.py, test_jobs.py
+  alembic.ini
+  alembic/
+    env.py
+    versions/
+      0001_init.py
+      0002_backfill_org_id.py
+      0003_bolt_tables.py
+
+frontend/
+  package.json, vite.config.ts, tsconfig*.json, .env.example
+  src/
+    App.tsx, main.tsx
+    api/fleetApi.ts
+    pages/Login.tsx
+    components/DriverTable.tsx, DriverDetail.tsx, MetricsCards.tsx, PaymentList.tsx
+
+monitoring/
+  prometheus.yml
+  grafana/provisioning/datasources/datasource.yml
+  grafana/provisioning/dashboards/dashboard.yml
+  grafana/dashboards/backend-overview.json
+  grafana/dashboards/backend-endpoint-db.json
+
+infra/
+  traefik/README.md
+
+docker-compose.yml
+docker-compose.traefik.yml (optionnel)
+supabase/schema.sql
+docs/TESTING.md
+docs/DEPLOY-OVH.md
+```
+
+## 4. Sécurité & Auth
+1) Interne (front → backend)  
+   - `/auth/login` → JWT interne.  
+   - Toutes les routes `/fleet/...` et `/bolt/...` exigent `Authorization: Bearer <token>`.
+2) Uber (backend → Uber)  
+   - OAuth2 client_credentials (`UBER_CLIENT_ID/SECRET`), scopes dans `uber_scopes.py`.  
+   - Token caché côté backend.
+3) Bolt (backend → Bolt)  
+   - Client credentials (`BOLT_CLIENT_ID/SECRET`).  
+   - Token caché côté backend.
+4) RLS Supabase  
+   - `org_id` sur toutes les tables, policies org-scopées dans `supabase/schema.sql`.  
+   - Garder la clé service role uniquement backend.
+
+## 5. Variables d’environnement
+Backend (`backend/.env.example`) :
+```
+APP_ENV=dev
+DB_HOST=; DB_PORT=5432; DB_NAME=; DB_USER=; DB_PASSWORD=
+JWT_SECRET=; JWT_ALGORITHM=HS256; JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+SUPABASE_URL=; SUPABASE_ANON_KEY=; SUPABASE_SERVICE_ROLE_KEY=; SUPABASE_JWT_SECRET=
+UBER_CLIENT_ID=; UBER_CLIENT_SECRET=; UBER_BASE_URL=https://api.uber.com; UBER_AUTH_URL=https://auth.uber.com/oauth/v2/token; UBER_DEFAULT_ORG_ID=
+BOLT_CLIENT_ID=; BOLT_CLIENT_SECRET=; BOLT_BASE_URL=https://api.bolt.com; BOLT_AUTH_URL=https://auth.bolt.com/oauth/token; BOLT_DEFAULT_FLEET_ID=
+```
+Frontend (`frontend/.env.example`) :
+```
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+## 6. Base de données & migrations
+- Supabase/PostgreSQL, org_id partout, RLS activée (`supabase/schema.sql`).
+- Alembic :
+  - `0001_init` schéma Uber.
+  - `0002_backfill_org_id` remplit org_id avec `UBER_DEFAULT_ORG_ID`.
+  - `0003_bolt_tables` ajoute tables Bolt.
+- Appliquer : `cd backend && alembic upgrade head`.
+
+## 7. Endpoints principaux
+- Auth : `POST /auth/login`, `GET /auth/me`
+- Uber : `/fleet/orgs`, `/fleet/drivers`, `/fleet/drivers/{id}`, `/fleet/vehicles`, `/fleet/drivers/{id}/metrics`, `/fleet/drivers/{id}/payments`
+- Bolt : `/bolt/drivers`, `/bolt/drivers/{id}`, `/bolt/vehicles`, `/bolt/drivers/{id}/trips`, `/bolt/drivers/{id}/earnings`
+- Sync admin : `/fleet/sync/...` (Uber) ; jobs Bolt planifiés via APScheduler.
+
+## 8. Sync & jobs (par défaut)
+- Uber: orgs daily, drivers/vehicles 6h, metrics 12h, payments 30m.
+- Bolt: drivers/vehicles 15m, trips 6h, earnings 1h.
+
+## 9. Monitoring
+- Prometheus scrape `/metrics` (prometheus-fastapi-instrumentator).
+- Grafana dashboards provisionnés (overview + endpoint/DB).
+
+## 10. Frontend (React/Vite)
+- Login JWT, toggle provider Uber/Bolt, pagination drivers, filtres date, états loading/erreur/offline.
+- Uber : metrics + payments. Bolt : trips + earnings.
+
+## 11. Docker / Déploiement
+- Dev stack : `docker compose up --build` (backend, frontend, Postgres dev, Prometheus, Grafana).
+- TLS/Reverse proxy : `docker-compose.traefik.yml` + `infra/traefik/README.md`.
+- OVH : voir `docs/DEPLOY-OVH.md`.
+
+## 12. Tests
+- `pytest backend/app/tests` (env keys, scopes, endpoints stubs, services sync).
+- Vérifs locales : `docs/TESTING.md` (uvicorn, alembic, docker stack).
 # AA DENIS MOBILITES – Fleet Manager API
 
 ## 1. Objectif du projet
