@@ -20,6 +20,10 @@ services:
       - db
     networks:
       - appnet
+    # Ajouter des serveurs DNS si problème de résolution
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   frontend:
     build:

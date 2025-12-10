@@ -13,8 +13,9 @@ class BoltClient:
     def __init__(self):
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0.0
-        # Convertir AnyUrl en str pour httpx
-        self._client = httpx.Client(base_url=str(settings.bolt_base_url), timeout=20)
+        # Convertir AnyUrl en str pour httpx et s'assurer qu'il n'y a pas de slash final
+        base_url = str(settings.bolt_base_url).rstrip("/")
+        self._client = httpx.Client(base_url=base_url, timeout=20)
 
     def _get_token(self) -> str:
         if self._access_token and time.time() < self._token_expires_at - 30:
@@ -56,28 +57,37 @@ class BoltClient:
         return {"Authorization": f"Bearer {self._get_token()}"}
 
     def get(self, path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        # S'assurer que le path commence par /
+        if not path.startswith("/"):
+            path = "/" + path
         try:
             resp = self._client.get(path, headers=self._headers(), params=params)
             resp.raise_for_status()
             return resp.json()
         except ConnectError as e:
-            base_url = str(settings.bolt_base_url)
+            base_url = str(settings.bolt_base_url).rstrip("/")
+            full_url = f"{base_url}{path}"
             raise ConnectionError(
-                f"Impossible de se connecter à {base_url}{path}. "
-                f"Vérifie que BOLT_BASE_URL est correct (doit être https://api.bolt.eu). "
-                f"Erreur: {str(e)}"
+                f"Impossible de se connecter à {full_url}. "
+                f"Vérifie que BOLT_BASE_URL est correct et que le réseau peut résoudre le DNS. "
+                f"Erreur DNS: {str(e)}"
             ) from e
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        # S'assurer que le path commence par /
+        if not path.startswith("/"):
+            path = "/" + path
         try:
             resp = self._client.post(path, headers=self._headers(), json=payload)
             resp.raise_for_status()
             return resp.json()
         except ConnectError as e:
-            base_url = str(settings.bolt_base_url)
+            base_url = str(settings.bolt_base_url).rstrip("/")
+            full_url = f"{base_url}{path}"
             raise ConnectionError(
-                f"Impossible de se connecter à {base_url}{path}. "
-                f"Vérifie que BOLT_BASE_URL est correct (doit être https://api.bolt.eu). "
-                f"Erreur: {str(e)}"
+                f"Impossible de se connecter à {full_url}. "
+                f"Vérifie que BOLT_BASE_URL est correct et que le réseau peut résoudre le DNS. "
+                f"Erreur DNS: {str(e)}. "
+                f"Test depuis Docker: docker compose exec backend nslookup api.bolt.eu"
             ) from e
 
