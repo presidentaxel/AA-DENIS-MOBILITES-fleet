@@ -407,3 +407,22 @@ UBER_AUTH_URL=https://auth.uber.com/oauth/v2/token
 
 # Optionnel: organisation Uber forcée
 UBER_DEFAULT_ORG_ID=
+
+# Supabase (recommandé pour la production)
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_JWT_SECRET=  # Optionnel, voir docs/SUPABASE_SETUP.md
+
+# Bolt API
+BOLT_CLIENT_ID=
+BOLT_CLIENT_SECRET=
+BOLT_BASE_URL=https://api.bolt.com
+BOLT_AUTH_URL=https://auth.bolt.com/oauth/token
+BOLT_DEFAULT_FLEET_ID=
+```
+
+📖 **Guide complet** : Voir [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md) pour :
+- Où trouver les clés Supabase
+- Comment appliquer le schéma SQL
+- Configuration RLS (Row Level Security)
