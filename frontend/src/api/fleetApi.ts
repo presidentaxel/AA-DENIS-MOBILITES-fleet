@@ -11,7 +11,19 @@ export const login = async (email: string, password: string) => {
   const res = await api.post("/auth/login", form, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
-  return res.data as { access_token: string; token_type: string };
+  const data = res.data as { access_token: string; token_type: string };
+  // Stocker le token dans localStorage pour persister entre les rechargements
+  if (data.access_token) {
+    localStorage.setItem("auth_token", data.access_token);
+  }
+  return data;
+};
+
+export const getMe = async (token: string) => {
+  const res = await api.get("/auth/me", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.data;
 };
 
 export const getDrivers = async (token: string, params?: { limit?: number; offset?: number }) => {

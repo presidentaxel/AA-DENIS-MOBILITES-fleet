@@ -11,6 +11,7 @@ import {
   getBoltDriver,
   getBoltTrips,
   getBoltEarnings,
+  getMe,
 } from "./api/fleetApi";
 import Login from "./pages/Login";
 
@@ -18,7 +19,10 @@ type Driver = { uuid?: string; name?: string; email?: string };
 type BoltDriver = { id?: string; first_name?: string; last_name?: string; email?: string; phone?: string };
 
 export default function App() {
-  const [token, setToken] = useState<string | null>(null);
+  // Récupérer le token depuis localStorage au démarrage
+  const [token, setToken] = useState<string | null>(() => {
+    return localStorage.getItem("auth_token");
+  });
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [boltDrivers, setBoltDrivers] = useState<BoltDriver[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<string | null>(null);
@@ -64,8 +68,14 @@ export default function App() {
           if (data.length) setSelectedBoltDriver(data[0].id || null);
         }
         setError(null);
-      } catch (err) {
-        setError("Erreur chargement chauffeurs");
+      } catch (err: any) {
+        const errorMsg = err?.response?.data?.detail || err?.message || "Erreur chargement chauffeurs";
+        setError(errorMsg);
+        console.error("Erreur fetchDrivers:", err);
+        // Si erreur 401, déconnecter
+        if (err?.response?.status === 401) {
+          handleLogout();
+        }
       } finally {
         setLoading(false);
       }
@@ -93,8 +103,14 @@ export default function App() {
           setPayments(paymentsRes);
         }
         setError(null);
-      } catch (err) {
-        setError("Erreur chargement métriques/paiements");
+      } catch (err: any) {
+        const errorMsg = err?.response?.data?.detail || err?.message || "Erreur chargement métriques/paiements";
+        setError(errorMsg);
+        console.error("Erreur fetchDetails:", err);
+        // Si erreur 401, déconnecter
+        if (err?.response?.status === 401) {
+          handleLogout();
+        }
       } finally {
         setLoading(false);
       }
@@ -108,10 +124,46 @@ export default function App() {
     [boltDrivers, selectedBoltDriver]
   );
 
+  const handleLogout = () => {
+    localStorage.removeItem("auth_token");
+    setToken(null);
+  };
+
+  const copyToken = () => {
+    if (token) {
+      navigator.clipboard.writeText(token);
+      alert("Token copié dans le presse-papiers !");
+    }
+  };
+
+  // Vérifier que le token est valide au chargement (une seule fois)
+  useEffect(() => {
+    async function verifyToken() {
+      if (!token) return;
+      try {
+        await getMe(token);
+      } catch (err) {
+        // Token invalide ou expiré
+        console.error("Token invalide, déconnexion...", err);
+        handleLogout();
+      }
+    }
+    // Vérifier seulement au premier chargement
+    if (token) {
+      verifyToken();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Exécuter seulement au montage
+
   if (!token) {
     return (
       <div style={{ padding: 24 }}>
-        <Login onLogged={setToken} />
+        <Login
+          onLogged={(newToken) => {
+            setToken(newToken);
+            localStorage.setItem("auth_token", newToken);
+          }}
+        />
       </div>
     );
   }
@@ -119,7 +171,40 @@ export default function App() {
   return (
     <div style={{ padding: 24, display: "flex", gap: 24 }}>
       <div style={{ flex: 1 }}>
-        <h1>AA Denis Mobilités – Fleet</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h1>AA Denis Mobilités – Fleet</h1>
+          <button onClick={handleLogout} style={{ padding: "8px 16px" }}>
+            Déconnexion
+          </button>
+        </div>
+        
+        {/* Section JWT Token */}
+        <div style={{ 
+          background: "#f5f5f5", 
+          padding: 12, 
+          borderRadius: 8, 
+          marginBottom: 16,
+          fontSize: "12px"
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <strong>JWT Token :</strong>
+            <button onClick={copyToken} style={{ padding: "4px 8px", fontSize: "12px" }}>
+              📋 Copier
+            </button>
+          </div>
+          <div style={{ 
+            wordBreak: "break-all", 
+            fontFamily: "monospace", 
+            background: "white", 
+            padding: 8, 
+            borderRadius: 4,
+            maxHeight: "60px",
+            overflow: "auto"
+          }}>
+            {token}
+          </div>
+        </div>
+
         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
           <button onClick={() => setProvider("uber")} disabled={provider === "uber"}>
             Uber

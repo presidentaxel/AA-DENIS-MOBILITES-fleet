@@ -13,7 +13,32 @@ from app.webhooks.routes_webhooks import router as webhook_router
 
 def create_app() -> FastAPI:
     app_logging.setup_logging()
-    app = FastAPI(title="AA Denis Mobilités – Fleet Manager API")
+    
+    app = FastAPI(
+        title="AA Denis Mobilités – Fleet Manager API",
+        description="""
+        API REST sécurisée pour gérer les flottes Uber et Bolt.
+        
+        ## 🔐 Authentification
+        
+        Pour utiliser cette API :
+        1. Connecte-toi via `/auth/login` pour obtenir un `access_token`
+        2. Clique sur le bouton **"Authorize"** 🔒 en haut à droite de cette page
+        3. Dans le champ "Value", entre ton `access_token` (obtenu à l'étape 1)
+        4. Clique sur **"Authorize"** puis **"Close"**
+        5. Tous les endpoints protégés utiliseront automatiquement ce token
+        
+        💡 **Astuce** : Le token est valide pendant 60 minutes. Après expiration, reconnecte-toi pour obtenir un nouveau token.
+        
+        ## 📚 Endpoints
+        
+        - **Auth** : Authentification et gestion des utilisateurs
+        - **Fleet** : Endpoints pour les données Uber
+        - **Bolt** : Endpoints pour les données Bolt
+        - **Webhooks** : Webhooks pour les notifications
+        """,
+        version="1.0.0",
+    )
 
     app.add_middleware(
         CORSMiddleware,
