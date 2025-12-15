@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Optional
+from urllib.parse import quote_plus
 
 from pydantic import AnyUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,6 +16,39 @@ class Settings(BaseSettings):
     db_name: str = Field(default="aa_denis_fleet", alias="DB_NAME")
     db_user: str = Field(default="postgres", alias="DB_USER")
     db_password: str = Field(default="password", alias="DB_PASSWORD")
+    # Support pour connection string complète (optionnel, prioritaire si défini)
+    database_url_override: Optional[str] = Field(default=None, alias="DATABASE_URL")
+
+    @field_validator("db_host", mode="before")
+    @classmethod
+    def validate_db_host(cls, v: str | None) -> str:
+        """Nettoyer l'URL Supabase si fournie (retirer https:// et extraire le hostname)."""
+        if not v or v == "":
+            return "localhost"
+        # Si c'est une URL Supabase (https://xxx.supabase.co), extraire le hostname
+        if v.startswith("https://"):
+            # Extraire le hostname et le convertir en hostname de DB Supabase
+            # https://xxx.supabase.co -> db.xxx.supabase.co
+            hostname = v.replace("https://", "").replace("http://", "").split("/")[0]
+            if hostname.endswith(".supabase.co"):
+                # Convertir en hostname de connexion DB: xxx.supabase.co -> db.xxx.supabase.co
+                project_ref = hostname.replace(".supabase.co", "")
+                return f"db.{project_ref}.supabase.co"
+            return hostname
+        return v
+    
+    # Port de connection pooling Supabase (optionnel, utilise 5432 par défaut)
+    db_pooling_port: Optional[int] = Field(default=None, alias="DB_POOLING_PORT")
+
+    @field_validator("db_port", mode="before")
+    @classmethod
+    def validate_db_port(cls, v: str | int | None) -> int:
+        """Convert empty string or None to default port."""
+        if v == "" or v is None:
+            return 5432
+        if isinstance(v, str):
+            return int(v)
+        return v
 
     jwt_secret: str = Field(default="changeme", alias="JWT_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
@@ -41,13 +75,38 @@ class Settings(BaseSettings):
 
     bolt_client_id: Optional[str] = Field(default=None, alias="BOLT_CLIENT_ID")
     bolt_client_secret: Optional[str] = Field(default=None, alias="BOLT_CLIENT_SECRET")
-    bolt_base_url: AnyUrl = Field(default="https://api.bolt.eu", alias="BOLT_BASE_URL")
+    bolt_base_url: AnyUrl = Field(default="https://node.bolt.eu/fleet-integration-gateway", alias="BOLT_BASE_URL")
     bolt_auth_url: AnyUrl = Field(default="https://oidc.bolt.eu/token", alias="BOLT_AUTH_URL")
     bolt_default_fleet_id: Optional[str] = Field(default=None, alias="BOLT_DEFAULT_FLEET_ID")
 
     @property
     def database_url(self) -> str:
-        return f"postgresql+psycopg2://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+        """Construit l'URL de connexion à la base de données."""
+        # Si une URL complète est fournie, l'utiliser directement
+        if self.database_url_override:
+            # S'assurer qu'elle utilise psycopg2
+            url = self.database_url_override
+            if url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+            elif not url.startswith("postgresql+psycopg2://"):
+                url = f"postgresql+psycopg2://{url}"
+            # Ajouter sslmode=require si pas déjà présent (nécessaire pour Supabase)
+            if "sslmode=" not in url:
+                separator = "&" if "?" in url else "?"
+                url = f"{url}{separator}sslmode=require"
+            return url
+        
+        # Sinon, construire l'URL à partir des composants
+        # Utiliser le port de pooling si défini, sinon le port standard
+        port = self.db_pooling_port if self.db_pooling_port else (self.db_port if self.db_port else 5432)
+        # Échapper correctement le mot de passe et l'utilisateur (contient des caractères spéciaux)
+        user = quote_plus(self.db_user)
+        password = quote_plus(self.db_password)
+        host = self.db_host
+        database = quote_plus(self.db_name) if self.db_name else "postgres"
+        # Ajouter sslmode=require pour Supabase (nécessaire pour les connexions externes)
+        ssl_param = "?sslmode=require"
+        return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}{ssl_param}"
 
 
 @lru_cache

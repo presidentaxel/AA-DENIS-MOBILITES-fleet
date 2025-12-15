@@ -44,6 +44,15 @@ create table if not exists driver_payments (
 );
 
 -- Bolt tables
+create table if not exists bolt_organizations (
+    id text primary key,
+    org_id text not null,
+    name text
+);
+
+create index if not exists ix_bolt_organizations_id on bolt_organizations(id);
+create index if not exists ix_bolt_organizations_org_id on bolt_organizations(org_id);
+
 create table if not exists bolt_drivers (
     id text primary key,
     org_id text not null,
@@ -68,22 +77,76 @@ create table if not exists bolt_vehicles (
 create index if not exists ix_bolt_vehicles_id on bolt_vehicles(id);
 create index if not exists ix_bolt_vehicles_org_id on bolt_vehicles(org_id);
 
-create table if not exists bolt_trips (
-    id text primary key,
+-- Bolt Orders (remplace bolt_trips, correspond à getFleetOrders)
+create table if not exists bolt_orders (
+    order_reference text primary key,
     org_id text not null,
-    driver_id text,
-    start_time timestamptz not null,
-    end_time timestamptz not null,
-    price double precision default 0,
-    distance double precision default 0,
+    company_id integer,
+    company_name text,
+    driver_uuid text,
+    partner_uuid text,
+    driver_name text,
+    driver_phone text,
+    payment_method text,
+    payment_confirmed_timestamp bigint,
+    order_created_timestamp bigint,
+    order_status text,
+    driver_cancelled_reason text,
+    vehicle_model text,
+    vehicle_license_plate text,
+    price_review_reason text,
+    pickup_address text,
+    ride_distance double precision default 0,
+    order_accepted_timestamp bigint,
+    order_pickup_timestamp bigint,
+    order_drop_off_timestamp bigint,
+    order_finished_timestamp bigint,
+    -- Prix détaillés
+    ride_price double precision default 0,
+    booking_fee double precision default 0,
+    toll_fee double precision default 0,
+    cancellation_fee double precision default 0,
+    tip double precision default 0,
+    net_earnings double precision default 0,
+    cash_discount double precision default 0,
+    in_app_discount double precision default 0,
+    commission double precision default 0,
     currency text default 'EUR',
-    status text
+    is_scheduled boolean default false,
+    category_name text,
+    category_seats integer,
+    category_vehicle_type text,
+    -- JSON pour order_stops (array complexe)
+    order_stops jsonb
 );
 
-create index if not exists ix_bolt_trips_id on bolt_trips(id);
-create index if not exists ix_bolt_trips_org_id on bolt_trips(org_id);
-create index if not exists ix_bolt_trips_driver_id on bolt_trips(driver_id);
-create index if not exists ix_bolt_trips_start_time on bolt_trips(start_time);
+create index if not exists ix_bolt_orders_order_reference on bolt_orders(order_reference);
+create index if not exists ix_bolt_orders_org_id on bolt_orders(org_id);
+create index if not exists ix_bolt_orders_company_id on bolt_orders(company_id);
+create index if not exists ix_bolt_orders_driver_uuid on bolt_orders(driver_uuid);
+create index if not exists ix_bolt_orders_order_created_timestamp on bolt_orders(order_created_timestamp);
+create index if not exists ix_bolt_orders_order_status on bolt_orders(order_status);
+
+-- Bolt State Logs (correspond à getFleetStateLogs)
+create table if not exists bolt_state_logs (
+    id text primary key, -- Généré: driver_uuid + created timestamp
+    org_id text not null,
+    driver_uuid text not null,
+    vehicle_uuid text,
+    created bigint not null,
+    state text not null,
+    lat double precision,
+    lng double precision,
+    -- JSON pour active_categories (structure complexe)
+    active_categories jsonb
+);
+
+create index if not exists ix_bolt_state_logs_id on bolt_state_logs(id);
+create index if not exists ix_bolt_state_logs_org_id on bolt_state_logs(org_id);
+create index if not exists ix_bolt_state_logs_driver_uuid on bolt_state_logs(driver_uuid);
+create index if not exists ix_bolt_state_logs_vehicle_uuid on bolt_state_logs(vehicle_uuid);
+create index if not exists ix_bolt_state_logs_created on bolt_state_logs(created);
+create index if not exists ix_bolt_state_logs_state on bolt_state_logs(state);
 
 create table if not exists bolt_earnings (
     id text primary key,
@@ -106,9 +169,11 @@ alter table uber_drivers enable row level security;
 alter table uber_vehicles enable row level security;
 alter table driver_daily_metrics enable row level security;
 alter table driver_payments enable row level security;
+alter table bolt_organizations enable row level security;
 alter table bolt_drivers enable row level security;
 alter table bolt_vehicles enable row level security;
-alter table bolt_trips enable row level security;
+alter table bolt_orders enable row level security;
+alter table bolt_state_logs enable row level security;
 alter table bolt_earnings enable row level security;
 
 -- Service role: full access

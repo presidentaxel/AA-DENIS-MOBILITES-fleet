@@ -27,14 +27,16 @@ class BoltClient:
             raise ValueError("BOLT_CLIENT_ID and BOLT_CLIENT_SECRET must be set in environment variables")
         
         try:
+            # Bolt attend client_id et client_secret dans le body, pas en HTTP Basic Auth
             resp = httpx.post(
                 auth_url,
                 data={
                     "grant_type": "client_credentials",
+                    "client_id": settings.bolt_client_id,
+                    "client_secret": settings.bolt_client_secret,
                     "scope": "fleet-integration:api",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                auth=(settings.bolt_client_id, settings.bolt_client_secret),
             )
             resp.raise_for_status()
             data = resp.json()
@@ -60,34 +62,94 @@ class BoltClient:
         # S'assurer que le path commence par /
         if not path.startswith("/"):
             path = "/" + path
+        base_url = str(settings.bolt_base_url).rstrip("/")
+        full_url = f"{base_url}{path}"
+        headers = self._headers()
+        
+        # Logs de debug détaillés
+        print(f"[BOLT DEBUG] ===== GET REQUEST =====")
+        print(f"[BOLT] URL: {full_url}")
+        print(f"[BOLT] METHOD: GET")
+        print(f"[BOLT] PARAMS: {params}")
+        print(f"[BOLT] HEADERS: { {k: (v[:20] + '...' if k.lower() == 'authorization' else v) for k, v in headers.items()} }")
+        
         try:
-            resp = self._client.get(path, headers=self._headers(), params=params)
+            resp = self._client.get(path, headers=headers, params=params)
+            
+            # Logs de réponse
+            print(f"[BOLT] STATUS: {resp.status_code}")
+            print(f"[BOLT] RESPONSE HEADERS: {dict(resp.headers)}")
+            response_text = resp.text[:800] if resp.text else "(empty)"
+            print(f"[BOLT] BODY: {response_text}")
+            print(f"[BOLT DEBUG] =====================")
+            
             resp.raise_for_status()
             return resp.json()
         except ConnectError as e:
-            base_url = str(settings.bolt_base_url).rstrip("/")
-            full_url = f"{base_url}{path}"
+            print(f"[BOLT] CONNECTION ERROR: {str(e)}")
             raise ConnectionError(
                 f"Impossible de se connecter à {full_url}. "
-                f"Vérifie que BOLT_BASE_URL est correct et que le réseau peut résoudre le DNS. "
+                f"Vérifie que BOLT_BASE_URL est correct (doit être https://node.bolt.eu/fleet-integration-gateway). "
                 f"Erreur DNS: {str(e)}"
             ) from e
+        except Exception as e:
+            print(f"[BOLT] ERROR: {str(e)}")
+            print(f"[BOLT DEBUG] =====================")
+            raise
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         # S'assurer que le path commence par /
         if not path.startswith("/"):
             path = "/" + path
+        base_url = str(settings.bolt_base_url).rstrip("/")
+        full_url = f"{base_url}{path}"
+        
+        # Headers selon la documentation Bolt
+        headers = {
+            **self._headers(),
+            "Content-Type": "application/json",
+            "accept": "application/json",
+        }
+        
+        # Logs de debug détaillés
+        print(f"[BOLT DEBUG] ===== POST REQUEST =====")
+        print(f"[BOLT] URL: {full_url}")
+        print(f"[BOLT] METHOD: POST")
+        print(f"[BOLT] PARAMS: (none - using JSON body)")
+        print(f"[BOLT] JSON BODY: {payload}")
+        print(f"[BOLT] HEADERS: { {k: (v[:20] + '...' if k.lower() == 'authorization' else v) for k, v in headers.items()} }")
+        
         try:
-            resp = self._client.post(path, headers=self._headers(), json=payload)
+            resp = self._client.post(path, headers=headers, json=payload)
+            
+            # Logs de réponse (TOUJOURS afficher, même en cas d'erreur)
+            print(f"[BOLT] STATUS: {resp.status_code}")
+            print(f"[BOLT] RESPONSE HEADERS: {dict(resp.headers)}")
+            response_text = resp.text[:800] if resp.text else "(empty)"
+            print(f"[BOLT] BODY: {response_text}")
+            
+            # Si erreur HTTP, essayer de parser le JSON pour voir le message d'erreur Bolt
+            if resp.status_code >= 400:
+                try:
+                    error_json = resp.json()
+                    print(f"[BOLT] ERROR JSON: {error_json}")
+                except:
+                    pass
+            
+            print(f"[BOLT DEBUG] =====================")
+            
             resp.raise_for_status()
             return resp.json()
         except ConnectError as e:
-            base_url = str(settings.bolt_base_url).rstrip("/")
-            full_url = f"{base_url}{path}"
+            print(f"[BOLT] CONNECTION ERROR: {str(e)}")
+            print(f"[BOLT DEBUG] =====================")
             raise ConnectionError(
                 f"Impossible de se connecter à {full_url}. "
-                f"Vérifie que BOLT_BASE_URL est correct et que le réseau peut résoudre le DNS. "
-                f"Erreur DNS: {str(e)}. "
-                f"Test depuis Docker: docker compose exec backend nslookup api.bolt.eu"
+                f"Vérifie que BOLT_BASE_URL est correct (doit être https://node.bolt.eu/fleet-integration-gateway). "
+                f"Erreur DNS: {str(e)}"
             ) from e
+        except Exception as e:
+            print(f"[BOLT] ERROR: {str(e)}")
+            print(f"[BOLT DEBUG] =====================")
+            raise
 

@@ -7,9 +7,9 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      # Force DB_HOST to use Docker service name (overrides .env if present)
-      - DB_HOST=db
-      # Use values from .env or defaults
+      # Si DB_HOST n'est pas défini dans .env, utilise le service Docker local
+      # Pour utiliser Supabase, définis DB_HOST dans backend/.env (ex: db.xxxxx.supabase.co)
+      - DB_HOST=${DB_HOST:-db}
       - DB_PORT=${DB_PORT:-5432}
       - DB_NAME=${DB_NAME:-aa_denis_fleet}
       - DB_USER=${DB_USER:-postgres}
@@ -75,4 +75,11 @@ services:
 networks:
   appnet:
     driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.22.0.0/16
+        - subnet: 2001:db8::/32
+          gateway: 2001:db8::1
 

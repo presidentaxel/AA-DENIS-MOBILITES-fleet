@@ -12,7 +12,7 @@ BOLT_CLIENT_ID=ton_client_id
 BOLT_CLIENT_SECRET=ton_client_secret
 
 # URLs Bolt (déjà configurées par défaut)
-BOLT_BASE_URL=https://api.bolt.eu
+BOLT_BASE_URL=https://node.bolt.eu/fleet-integration-gateway
 BOLT_AUTH_URL=https://oidc.bolt.eu/token
 
 # Optionnel : Fleet ID par défaut

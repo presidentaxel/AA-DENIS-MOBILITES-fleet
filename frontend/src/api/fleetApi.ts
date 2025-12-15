@@ -80,3 +80,34 @@ export const getBoltEarnings = async (token: string, driverId: string, from: str
   return res.data;
 };
 
+export const getBoltDriverEarnings = async (token: string, driverId: string, from?: string, to?: string) => {
+  const res = await api.get(`/bolt/drivers/${driverId}/earnings`, {
+    params: from && to ? { from, to } : {},
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.data;
+};
+
+export const getBoltOrders = async (token: string, from: string, to: string, driverUuid?: string) => {
+  const res = await api.get(`/bolt/orders`, {
+    params: { from, to, ...(driverUuid && { driver_uuid: driverUuid }) },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.data;
+};
+
+export const getBoltVehicles = async (token: string, params?: { limit?: number; offset?: number }) => {
+  const res = await api.get("/bolt/vehicles", {
+    params,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.data;
+};
+
+export const getBoltVehicle = async (token: string, vehicleId: string) => {
+  const res = await api.get(`/bolt/vehicles/${vehicleId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.data;
+};
+

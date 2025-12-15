@@ -29,8 +29,10 @@ BOLT_AUTH_URL=https://auth.bolt.com/oauth/token  # ❌ INCORRECT
 L'URL de base de l'API Bolt doit être :
 
 ```env
-BOLT_BASE_URL=https://api.bolt.eu
+BOLT_BASE_URL=https://node.bolt.eu/fleet-integration-gateway
 ```
+
+**⚠️ Important** : L'URL de base est `https://node.bolt.eu/fleet-integration-gateway`, pas `https://api.bolt.eu` !
 
 ### 3. Configuration complète recommandée
 
@@ -40,7 +42,7 @@ BOLT_CLIENT_ID=ton_client_id
 BOLT_CLIENT_SECRET=ton_secret
 
 # Bolt API URLs (IMPORTANT : utiliser les bonnes URLs)
-BOLT_BASE_URL=https://api.bolt.eu
+BOLT_BASE_URL=https://node.bolt.eu/fleet-integration-gateway
 BOLT_AUTH_URL=https://oidc.bolt.eu/token
 
 # Optionnel

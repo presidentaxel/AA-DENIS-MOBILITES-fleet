@@ -1,10 +1,10 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
+from app.core.supabase_db import SupabaseDB
 from app.models.bolt_earning import BoltEarning
 from app.schemas.bolt_earning import BoltEarningSchema
 
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/bolt", tags=["bolt"])
 def list_bolt_earnings(
     driver_id: str,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: SupabaseDB = Depends(get_db),
     start: datetime = Query(..., alias="from"),
     end: datetime = Query(..., alias="to"),
 ):

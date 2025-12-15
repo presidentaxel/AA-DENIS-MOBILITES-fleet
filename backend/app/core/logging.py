@@ -22,3 +22,8 @@ def setup_logging() -> None:
     )
     logging.getLogger("uvicorn.error").setLevel(logging.INFO)
 
+
+def get_logger(name: str) -> logging.Logger:
+    """Retourne un logger pour un module donné."""
+    return logging.getLogger(name)
+

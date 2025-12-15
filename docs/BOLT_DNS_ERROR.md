@@ -26,9 +26,11 @@ BOLT_AUTH_URL=https://auth.bolt.com/oauth/token
 
 **✅ CORRECT :**
 ```env
-BOLT_BASE_URL=https://api.bolt.eu
+BOLT_BASE_URL=https://node.bolt.eu/fleet-integration-gateway
 BOLT_AUTH_URL=https://oidc.bolt.eu/token
 ```
+
+**⚠️ Important** : L'URL de base est `https://node.bolt.eu/fleet-integration-gateway`, pas `https://api.bolt.eu` !
 
 **⚠️ Note importante :** Les URLs Bolt utilisent `.bolt.eu` (Europe), pas `.bolt.com` !
 
