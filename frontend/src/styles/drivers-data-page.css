@@ -1,0 +1,455 @@
+/* Drivers Data Page - Custom Grid Design */
+.drivers-data-page {
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  width: 100%;
+  padding: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.header__left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.header__title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+}
+
+.header__title svg {
+  width: 24px;
+  height: 24px;
+}
+
+.header__title span {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--vc-gray-900);
+}
+
+.header__total {
+  font-size: 16px;
+  color: var(--vc-gray-600);
+  margin-left: 36px;
+}
+
+/* Controls Section */
+.controls {
+  margin-bottom: 24px;
+}
+
+.controls__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+/* Search Container */
+.search-container {
+  position: relative;
+  flex: 1;
+  min-width: 250px;
+  max-width: 400px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--vc-gray-500);
+  font-size: 20px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 16px 12px 48px;
+  border: 1px solid var(--color-grey-outline);
+  border-radius: 8px;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 16px;
+  color: var(--vc-gray-900);
+  background: var(--color-white);
+  transition: border-color 0.15s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-blue-main);
+}
+
+.search-input::placeholder {
+  color: var(--vc-gray-500);
+}
+
+/* Date Picker */
+.date-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 220px;
+}
+
+.date-icon {
+  position: absolute;
+  left: 16px;
+  color: var(--vc-gray-500);
+  font-size: 20px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.date-input {
+  width: 100%;
+  padding: 12px 40px 12px 48px;
+  border: 1px solid var(--color-grey-outline);
+  border-radius: 8px;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--vc-gray-900);
+  background: var(--color-white);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: var(--color-blue-main);
+}
+
+.date-arrow {
+  position: absolute;
+  right: 16px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Applied Filters */
+.applied-filters {
+  margin-top: 8px;
+}
+
+.applied-filters__label {
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  color: var(--vc-gray-600);
+}
+
+/* Custom Grid */
+.custom-grid {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.grid-container {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: 1px solid var(--color-grey-outline);
+  border-radius: 8px;
+  background: var(--color-white);
+}
+
+.grid-table {
+  width: 100%;
+  min-width: max-content;
+  border-collapse: collapse;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 16px;
+  background: var(--color-white);
+}
+
+.grid-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(248, 250, 252);
+  border-bottom: 1px solid var(--color-grey-outline);
+}
+
+.grid-table th {
+  padding: 16px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vc-gray-700);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  background: rgb(248, 250, 252);
+  border-right: 1px solid var(--color-grey-outline);
+}
+
+.grid-table th:last-child {
+  border-right: none;
+}
+
+.grid-table th.sorted {
+  background: var(--cp-gray-100);
+}
+
+.grid-table .th-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+.grid-table .th-content:hover {
+  color: var(--color-blue-main);
+}
+
+.grid-table .sort-indicator {
+  font-size: 14px;
+  color: var(--color-blue-main);
+  font-weight: 700;
+}
+
+.grid-table .sort-icon {
+  font-size: 16px;
+  color: var(--vc-gray-400);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.grid-table th:hover .sort-icon {
+  opacity: 1;
+}
+
+.grid-table tbody tr {
+  border-bottom: 1px solid var(--color-grey-outline);
+  transition: background-color 0.15s ease;
+}
+
+.grid-table tbody tr:hover {
+  background-color: var(--cp-gray-50);
+}
+
+.grid-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.grid-table td {
+  padding: 16px;
+  font-size: 16px;
+  color: var(--vc-gray-900);
+  border-right: 1px solid var(--color-grey-outline);
+  vertical-align: middle;
+}
+
+.grid-table td:last-child {
+  border-right: none;
+}
+
+/* Name Cell */
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.expand-icon-wrapper {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.expand-icon-wrapper:hover {
+  background-color: var(--cp-gray-100);
+  border-radius: 4px;
+}
+
+.expand-icon {
+  font-size: 20px;
+  color: var(--vc-gray-600);
+  transition: color 0.15s ease;
+}
+
+.expand-icon-wrapper:hover .expand-icon {
+  color: var(--color-blue-main);
+}
+
+.expand-icon-placeholder {
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.expanded-name-cell {
+  padding-left: 40px;
+}
+
+.main-row {
+  background-color: var(--color-white);
+}
+
+.main-row:hover {
+  background-color: var(--cp-gray-50);
+}
+
+.expanded-row {
+  background-color: var(--cp-gray-50);
+  border-left: 3px solid var(--color-blue-main);
+}
+
+.expanded-row:hover {
+  background-color: var(--cp-gray-100);
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  font-size: 16px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.name-cell span {
+  font-weight: 500;
+}
+
+/* Platform Cell */
+.platform-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Status Cell */
+.status-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.connected {
+  background-color: #8FB571;
+}
+
+.status-dot.disconnected {
+  background-color: #f52922;
+}
+
+/* Loading and Empty States */
+.loading-cell,
+.empty-cell {
+  text-align: center;
+  padding: 48px 16px !important;
+  color: var(--vc-gray-600);
+  font-size: 16px;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px;
+  border-top: 1px solid var(--color-grey-outline);
+  background: var(--color-white);
+}
+
+.pagination-btn {
+  padding: 10px 20px;
+  border: 1px solid var(--color-grey-outline);
+  border-radius: 8px;
+  background: var(--color-white);
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--vc-gray-900);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: var(--cp-gray-50);
+  border-color: var(--color-blue-main);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 16px;
+  color: var(--vc-gray-700);
+}
+
+/* Scrollbar Styling */
+.grid-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.grid-container::-webkit-scrollbar-track {
+  background: var(--cp-gray-100);
+  border-radius: 4px;
+}
+
+.grid-container::-webkit-scrollbar-thumb {
+  background: var(--cp-gray-400);
+  border-radius: 4px;
+}
+
+.grid-container::-webkit-scrollbar-thumb:hover {
+  background: var(--cp-gray-500);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .grid-table {
+    font-size: 14px;
+  }
+
+  .grid-table th,
+  .grid-table td {
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  .header__title span {
+    font-size: 20px;
+  }
+}

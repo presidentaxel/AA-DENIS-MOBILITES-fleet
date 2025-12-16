@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Calque_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 24 24">
+  <!-- Generator: Adobe Illustrator 29.8.2, SVG Export Plug-In . SVG Version: 2.1.1 Build 3)  -->
+  <circle cx="12" cy="12" r="12"/>
+  <g>
+    <path d="M11,13.7h2.2c.2,0,.5-.3.5-.5v-7.2l4.3,2.5v6.9h0l-6,3.5h0l-1-.6v-4.6Z" fill="#fff"/>
+    <path d="M13.1,10.4h-2.4s-.3.3-.3.5v7l-4.3-2.5v-6.9l6-3.4h0l1,.6v4.6h0Z" fill="#fff"/>
+  </g>
+</svg>

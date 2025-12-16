@@ -1,0 +1,131 @@
+/* Top Users Table Styles */
+.top-users-table {
+  width: 100%;
+}
+
+.top-users-table__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.top-users-table__title-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.top-users-table__icon {
+  font-size: 1.25rem;
+  color: #3b82f6;
+}
+
+.top-users-table__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0;
+}
+
+.top-users-table__period-select {
+  padding: 0.5rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-family: 'Nunito Sans', sans-serif;
+  background: white;
+  color: #334155;
+  cursor: pointer;
+}
+
+.top-users-table__content {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.top-users-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  font-family: 'Nunito Sans', sans-serif;
+}
+
+.top-users-table__table thead {
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.top-users-table__table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #475569;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.top-users-table__table td {
+  padding: 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+}
+
+.top-users-table__table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.top-users-table__no {
+  font-weight: 600;
+  color: #64748b;
+  width: 50px;
+}
+
+.top-users-table__name {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.top-users-table__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.top-users-table__name-text {
+  font-weight: 500;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.top-users-table__name-initials {
+  font-weight: 600;
+}
+
+.top-users-table__earnings {
+  font-weight: 600;
+  color: #0f172a;
+  text-align: right;
+}
+
+.top-users-table__empty {
+  text-align: center;
+  color: #94a3b8;
+  padding: 2rem;
+}
+

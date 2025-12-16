@@ -1,0 +1,233 @@
+/* Date Range Picker Styles */
+.date-range-picker-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.date-range-picker {
+  background: var(--color-white);
+  border-radius: 12px;
+  box-shadow: var(--vc-shadow-lg);
+  padding: 24px;
+  min-width: 700px;
+  max-width: 800px;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+}
+
+.date-range-picker__content {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+/* Preset Options */
+.date-range-picker__presets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.preset-button {
+  padding: 12px 16px;
+  border: 1px solid var(--color-grey-outline);
+  border-radius: 8px;
+  background: var(--color-white);
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--vc-gray-900);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preset-button:hover {
+  background: var(--cp-gray-50);
+  border-color: var(--color-blue-main);
+}
+
+.preset-button--active {
+  background: var(--color-blue-main);
+  color: var(--color-white);
+  border-color: var(--color-blue-main);
+}
+
+.preset-button--active:hover {
+  background: var(--color-blue-hover);
+}
+
+/* Calendar */
+.date-range-picker__calendar {
+  flex: 1;
+}
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.calendar-nav-button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-grey-outline);
+  border-radius: 6px;
+  background: var(--color-white);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+}
+
+.calendar-nav-button:hover {
+  background: var(--cp-gray-50);
+  border-color: var(--color-blue-main);
+}
+
+.calendar-nav-button svg {
+  font-size: 20px;
+  color: var(--vc-gray-700);
+}
+
+.calendar-month-year {
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--vc-gray-900);
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vc-gray-600);
+  padding: 8px;
+}
+
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--vc-gray-900);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.calendar-day:hover {
+  background: var(--cp-gray-100);
+}
+
+.calendar-day--empty {
+  cursor: default;
+}
+
+.calendar-day--empty:hover {
+  background: transparent;
+}
+
+.calendar-day--in-range {
+  background: var(--color-blue-background);
+  color: var(--color-blue-main);
+}
+
+.calendar-day--start,
+.calendar-day--end {
+  background: var(--color-blue-main);
+  color: var(--color-white);
+  font-weight: 600;
+  border-radius: 50%;
+}
+
+.calendar-day--start {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.calendar-day--end {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+
+.calendar-day--today {
+  border: 2px solid var(--color-blue-main);
+}
+
+/* Footer */
+.date-range-picker__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-grey-outline);
+}
+
+.footer-button {
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid var(--color-grey-outline);
+}
+
+.footer-button--close {
+  background: var(--color-white);
+  color: var(--vc-gray-900);
+}
+
+.footer-button--close:hover {
+  background: var(--cp-gray-50);
+  border-color: var(--color-blue-main);
+}
+
+.footer-button--apply {
+  background: var(--color-blue-main);
+  color: var(--color-white);
+  border-color: var(--color-blue-main);
+}
+
+.footer-button--apply:hover:not(:disabled) {
+  background: var(--color-blue-hover);
+}
+
+.footer-button--apply:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+

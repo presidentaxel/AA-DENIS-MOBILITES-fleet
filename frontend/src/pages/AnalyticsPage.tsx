@@ -1,77 +1,68 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { getBoltDrivers, getBoltOrders } from "../api/fleetApi";
+import { FiBarChart2, FiUsers, FiCheckCircle, FiDollarSign, FiTrendingUp, FiCalendar } from "react-icons/fi";
 import { StatCard } from "../components/StatCard";
 import { DistributionChart } from "../components/charts/DistributionChart";
+import { EarningsEvolutionChart } from "../components/charts/EarningsEvolutionChart";
+import { TopUsersTable } from "../components/analytics/TopUsersTable";
+import { NoEarningUsersTable } from "../components/analytics/NoEarningUsersTable";
+import { getBoltDrivers, getBoltOrders } from "../api/fleetApi";
 
 type AnalyticsPageProps = {
   token: string;
 };
 
 export function AnalyticsPage({ token }: AnalyticsPageProps) {
-  const [stats, setStats] = useState({
-    connectedUsers: 0,
-    workingUsers: 0,
-    totalGrossEarnings: 0,
-    totalNetEarnings: 0,
-  });
-  const [topDrivers, setTopDrivers] = useState<any[]>([]);
+  const [drivers, setDrivers] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<"week" | "month">("week");
+  const [showSampleData, setShowSampleData] = useState(false);
+
+  // Dates pour cette semaine et la semaine dernière
+  const thisWeekStart = useMemo(() => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Lundi
+    return new Date(d.setDate(diff));
+  }, []);
+
+  const thisWeekEnd = useMemo(() => {
+    const d = new Date(thisWeekStart);
+    d.setDate(d.getDate() + 6); // Dimanche
+    return d;
+  }, [thisWeekStart]);
+
+  const lastWeekStart = useMemo(() => {
+    const d = new Date(thisWeekStart);
+    d.setDate(d.getDate() - 7);
+    return d;
+  }, [thisWeekStart]);
+
+  const lastWeekEnd = useMemo(() => {
+    const d = new Date(thisWeekStart);
+    d.setDate(d.getDate() - 1); // Dimanche de la semaine dernière
+    return d;
+  }, [thisWeekStart]);
 
   useEffect(() => {
     async function loadAnalytics() {
       setLoading(true);
       try {
-        const drivers = await getBoltDrivers(token, { limit: 200 }).catch(() => []);
-        
-        // Calculer la période
+        // Charger les données pour les 90 derniers jours pour le graphique d'évolution
         const endDate = new Date();
         const startDate = new Date();
-        if (period === "week") {
-          startDate.setDate(endDate.getDate() - 7);
-        } else {
-          startDate.setDate(endDate.getDate() - 30);
-        }
-
-        const dateFrom = startDate.toISOString().slice(0, 10);
-        const dateTo = endDate.toISOString().slice(0, 10);
-
-        // Récupérer les orders
-        const orders = await getBoltOrders(token, dateFrom, dateTo).catch(() => []);
-
-        // Calculer les stats globales
-        const workingDriverIds = new Set(orders.map((o: any) => o.driver_uuid).filter(Boolean));
-        const totalGrossEarnings = orders.reduce((sum: number, o: any) => sum + (o.ride_price || 0), 0);
-        const totalNetEarnings = orders.reduce((sum: number, o: any) => sum + (o.net_earnings || 0), 0);
-
-        // Top drivers par revenus
-        const driverEarningsMap = new Map<string, number>();
-        orders.forEach((order: any) => {
-          if (order.driver_uuid) {
-            const current = driverEarningsMap.get(order.driver_uuid) || 0;
-            driverEarningsMap.set(order.driver_uuid, current + (order.net_earnings || 0));
-          }
-        });
-
-        const topDriversList = Array.from(driverEarningsMap.entries())
-          .map(([driverId, earnings]) => {
-            const driver = drivers.find((d: any) => d.id === driverId);
-            return {
-              id: driverId,
-              name: driver ? `${driver.first_name} ${driver.last_name}` : "Unknown",
-              earnings,
-            };
-          })
-          .sort((a, b) => b.earnings - a.earnings)
-          .slice(0, 10);
-
-        setStats({
-          connectedUsers: drivers.length,
-          workingUsers: workingDriverIds.size,
-          totalGrossEarnings: totalGrossEarnings,
-          totalNetEarnings: totalNetEarnings,
-        });
-        setTopDrivers(topDriversList);
+        startDate.setDate(endDate.getDate() - 90);
+        
+        const [driversData, ordersData] = await Promise.all([
+          getBoltDrivers(token, { limit: 200 }).catch(() => []),
+          getBoltOrders(
+            token,
+            startDate.toISOString().slice(0, 10),
+            endDate.toISOString().slice(0, 10)
+          ).catch(() => []),
+        ]);
+        setDrivers(driversData);
+        setOrders(ordersData);
       } catch (err) {
         console.error("Erreur chargement analytics:", err);
       } finally {
@@ -79,160 +70,366 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
       }
     }
     loadAnalytics();
-  }, [token, period]);
+  }, [token]);
+
+  // Calculer les métriques de cette semaine
+  const thisWeekMetrics = useMemo(() => {
+    const thisWeekOrders = orders.filter((o: any) => {
+      if (!o.order_created_timestamp) return false;
+      const orderDate = new Date(o.order_created_timestamp * 1000);
+      return orderDate >= thisWeekStart && orderDate <= thisWeekEnd;
+    });
+
+    const workingDriverIds = new Set(
+      thisWeekOrders.map((o: any) => o.driver_uuid).filter(Boolean)
+    );
+
+    const totalGrossEarnings = thisWeekOrders.reduce(
+      (sum: number, o: any) => sum + (o.ride_price || 0),
+      0
+    );
+
+    return {
+      connectedUsers: drivers.length,
+      workingUsers: workingDriverIds.size,
+      totalGrossEarnings,
+    };
+  }, [orders, drivers, thisWeekStart, thisWeekEnd]);
+
+  // Distribution des revenus cette semaine
+  const thisWeekDistribution = useMemo(() => {
+    const thisWeekOrders = orders.filter((o: any) => {
+      if (!o.order_created_timestamp) return false;
+      const orderDate = new Date(o.order_created_timestamp * 1000);
+      return orderDate >= thisWeekStart && orderDate <= thisWeekEnd;
+    });
+
+    // Grouper par driver et calculer les revenus
+    const driverEarnings = new Map<string, number>();
+    thisWeekOrders.forEach((o: any) => {
+      if (o.driver_uuid) {
+        const current = driverEarnings.get(o.driver_uuid) || 0;
+        driverEarnings.set(o.driver_uuid, current + (o.net_earnings || 0));
+      }
+    });
+
+    // Créer des buckets de revenus (0-200, 200-400, etc.)
+    const buckets: Record<string, number> = {
+      "0-200": 0,
+      "200-400": 0,
+      "400-600": 0,
+      "600-800": 0,
+      "800-1000": 0,
+      "1000-1200": 0,
+      "1200-1400": 0,
+      "1400-1600": 0,
+    };
+
+    driverEarnings.forEach((earnings) => {
+      if (earnings <= 200) buckets["0-200"]++;
+      else if (earnings <= 400) buckets["200-400"]++;
+      else if (earnings <= 600) buckets["400-600"]++;
+      else if (earnings <= 800) buckets["600-800"]++;
+      else if (earnings <= 1000) buckets["800-1000"]++;
+      else if (earnings <= 1200) buckets["1000-1200"]++;
+      else if (earnings <= 1400) buckets["1200-1400"]++;
+      else buckets["1400-1600"]++;
+    });
+
+    return Object.entries(buckets).map(([range, count]) => ({
+      range,
+      count,
+    }));
+  }, [orders, thisWeekStart, thisWeekEnd]);
+
+  // Distribution des revenus la semaine dernière
+  const lastWeekDistribution = useMemo(() => {
+    const lastWeekOrders = orders.filter((o: any) => {
+      if (!o.order_created_timestamp) return false;
+      const orderDate = new Date(o.order_created_timestamp * 1000);
+      return orderDate >= lastWeekStart && orderDate <= lastWeekEnd;
+    });
+
+    const driverEarnings = new Map<string, number>();
+    lastWeekOrders.forEach((o: any) => {
+      if (o.driver_uuid) {
+        const current = driverEarnings.get(o.driver_uuid) || 0;
+        driverEarnings.set(o.driver_uuid, current + (o.net_earnings || 0));
+      }
+    });
+
+    const buckets: Record<string, number> = {
+      "0-200": 0,
+      "200-400": 0,
+      "400-600": 0,
+      "600-800": 0,
+      "800-1000": 0,
+      "1000-1200": 0,
+      "1200-1400": 0,
+      "1400-1600": 0,
+    };
+
+    driverEarnings.forEach((earnings) => {
+      if (earnings <= 200) buckets["0-200"]++;
+      else if (earnings <= 400) buckets["200-400"]++;
+      else if (earnings <= 600) buckets["400-600"]++;
+      else if (earnings <= 800) buckets["600-800"]++;
+      else if (earnings <= 1000) buckets["800-1000"]++;
+      else if (earnings <= 1200) buckets["1000-1200"]++;
+      else if (earnings <= 1400) buckets["1200-1400"]++;
+      else buckets["1400-1600"]++;
+    });
+
+    return Object.entries(buckets).map(([range, count]) => ({
+      range,
+      count,
+    }));
+  }, [orders, lastWeekStart, lastWeekEnd]);
+
+  // Pourcentage d'utilisateurs sans revenus cette semaine
+  const noEarningsThisWeekPercent = useMemo(() => {
+    const thisWeekOrders = orders.filter((o: any) => {
+      if (!o.order_created_timestamp) return false;
+      const orderDate = new Date(o.order_created_timestamp * 1000);
+      return orderDate >= thisWeekStart && orderDate <= thisWeekEnd;
+    });
+
+    const workingDriverIds = new Set(
+      thisWeekOrders.map((o: any) => o.driver_uuid).filter(Boolean)
+    );
+
+    const totalDrivers = drivers.length;
+    const driversWithEarnings = workingDriverIds.size;
+    const driversWithoutEarnings = totalDrivers - driversWithEarnings;
+
+    return totalDrivers > 0 ? (driversWithoutEarnings / totalDrivers) * 100 : 0;
+  }, [orders, drivers, thisWeekStart, thisWeekEnd]);
+
+  // Pourcentage d'utilisateurs sans revenus la semaine dernière
+  const noEarningsLastWeekPercent = useMemo(() => {
+    const lastWeekOrders = orders.filter((o: any) => {
+      if (!o.order_created_timestamp) return false;
+      const orderDate = new Date(o.order_created_timestamp * 1000);
+      return orderDate >= lastWeekStart && orderDate <= lastWeekEnd;
+    });
+
+    const workingDriverIds = new Set(
+      lastWeekOrders.map((o: any) => o.driver_uuid).filter(Boolean)
+    );
+
+    const totalDrivers = drivers.length;
+    const driversWithEarnings = workingDriverIds.size;
+    const driversWithoutEarnings = totalDrivers - driversWithEarnings;
+
+    return totalDrivers > 0 ? (driversWithoutEarnings / totalDrivers) * 100 : 0;
+  }, [orders, drivers, lastWeekStart, lastWeekEnd]);
+
+  // Top users et No earning users
+  const { topUsers, noEarningUsers } = useMemo(() => {
+    const thisWeekOrders = orders.filter((o: any) => {
+      if (!o.order_created_timestamp) return false;
+      const orderDate = new Date(o.order_created_timestamp * 1000);
+      return orderDate >= thisWeekStart && orderDate <= thisWeekEnd;
+    });
+
+    // Calculer les revenus par driver
+    const driverEarnings = new Map<string, { earnings: number; driver: any }>();
+    thisWeekOrders.forEach((o: any) => {
+      if (o.driver_uuid) {
+        const driver = drivers.find((d: any) => d.id === o.driver_uuid);
+        if (driver) {
+          const current = driverEarnings.get(o.driver_uuid) || {
+            earnings: 0,
+            driver,
+          };
+          current.earnings += o.net_earnings || 0;
+          driverEarnings.set(o.driver_uuid, current);
+        }
+      }
+    });
+
+    // Trier et obtenir les top users
+    const sortedUsers = Array.from(driverEarnings.values())
+      .sort((a, b) => b.earnings - a.earnings)
+      .map((item, index) => ({
+        no: index + 1,
+        driver: item.driver,
+        earnings: item.earnings,
+      }));
+
+    // Trouver les users sans revenus
+    const workingDriverIds = new Set(driverEarnings.keys());
+    const noEarning = drivers
+      .filter((d: any) => !workingDriverIds.has(d.id))
+      .slice(0, 10)
+      .map((driver: any, index: number) => ({
+        no: index + 1,
+        driver,
+        earnings: 0,
+      }));
+
+    return {
+      topUsers: sortedUsers.slice(0, 10),
+      noEarningUsers: noEarning,
+    };
+  }, [orders, drivers, thisWeekStart, thisWeekEnd]);
+
+  // Données pour le graphique d'évolution temporelle
+  const evolutionData = useMemo(() => {
+    // Grouper les orders par jour
+    const dailyData = new Map<string, { date: Date; earnings: number; connected: number }>();
+
+    // Initialiser avec tous les jours des 90 derniers jours
+    for (let i = 90; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateKey = date.toISOString().slice(0, 10);
+      dailyData.set(dateKey, {
+        date: new Date(date),
+        earnings: 0,
+        connected: 0,
+      });
+    }
+
+    // Remplir avec les données réelles
+    orders.forEach((o: any) => {
+      if (o.order_created_timestamp) {
+        const orderDate = new Date(o.order_created_timestamp * 1000);
+        const dateKey = orderDate.toISOString().slice(0, 10);
+
+        if (dailyData.has(dateKey)) {
+          const dayData = dailyData.get(dateKey)!;
+          dayData.earnings += o.net_earnings || 0;
+        }
+      }
+    });
+
+    // Calculer les connected drivers par jour (simplifié: on prend le total actuel)
+    const connectedCount = drivers.length;
+    dailyData.forEach((data) => {
+      data.connected = connectedCount;
+    });
+
+    return Array.from(dailyData.values()).filter((d) => {
+      const daysAgo = (new Date().getTime() - d.date.getTime()) / (1000 * 60 * 60 * 24);
+      return daysAgo <= 90;
+    });
+  }, [orders, drivers]);
+
+  if (loading) {
+    return (
+      <div className="analytics-page__loading-container">
+        <div className="spinner"></div>
+        <span className="analytics-page__loading-text">Chargement des analytics...</span>
+      </div>
+    );
+  }
 
   return (
-    <div>
+    <div className="analytics-page">
       {/* Header */}
-      <div style={{ marginBottom: "2rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <h1 style={{ fontSize: "1.875rem", fontWeight: "700", color: "#0f172a", marginBottom: "0.5rem" }}>
-            📈 Analytics
-          </h1>
-          <p style={{ color: "#64748b", fontSize: "0.875rem" }}>
-            Insights et statistiques de votre flotte
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            className={`btn ${period === "week" ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => setPeriod("week")}
-          >
-            Cette semaine
-          </button>
-          <button
-            className={`btn ${period === "month" ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => setPeriod("month")}
-          >
-            Ce mois
-          </button>
-        </div>
-      </div>
-
-      {/* Key Metrics */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <StatCard
-          label="Utilisateurs connectés"
-          value={stats.connectedUsers}
-          icon="👥"
-          color="primary"
-        />
-        <StatCard
-          label="Chauffeurs actifs"
-          value={stats.workingUsers}
-          icon="✅"
-          color="success"
-        />
-        <StatCard
-          label="Revenus bruts totaux"
-          value={`${stats.totalGrossEarnings.toFixed(2)} EUR`}
-          icon="💰"
-          color="success"
-        />
-        <StatCard
-          label="Revenus nets totaux"
-          value={`${stats.totalNetEarnings.toFixed(2)} EUR`}
-          icon="💵"
-          color="success"
-        />
-      </div>
-
-      {/* Top Drivers */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">🏆 Top chauffeurs ({period === "week" ? "Cette semaine" : "Ce mois"})</h2>
-        </div>
-        <div className="card-body">
-          {loading ? (
-            <div className="loading">
-              <div className="spinner"></div>
-            </div>
-          ) : topDrivers.length > 0 ? (
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Rang</th>
-                    <th>Nom</th>
-                    <th>Revenus nets</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topDrivers.map((driver, index) => (
-                    <tr key={driver.id}>
-                      <td>
-                        <span style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          width: "32px",
-                          height: "32px",
-                          borderRadius: "50%",
-                          backgroundColor: index === 0 ? "#fbbf24" : index === 1 ? "#9ca3af" : index === 2 ? "#cd7f32" : "#e2e8f0",
-                          color: index < 3 ? "#fff" : "#64748b",
-                          fontWeight: "600",
-                        }}>
-                          {index + 1}
-                        </span>
-                      </td>
-                      <td>
-                        <strong>{driver.name}</strong>
-                      </td>
-                      <td>
-                        <strong style={{ color: "#10b981" }}>
-                          {driver.earnings.toFixed(2)} EUR
-                        </strong>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center text-muted">Aucune donnée disponible</div>
-          )}
-        </div>
-      </div>
-
-      {/* Distribution des revenus */}
-      {(() => {
-        // Calculer la distribution des revenus par tranche
-        const distributionData = useMemo(() => {
-          const ranges = [
-            { min: 0, max: 100, label: "0-100€" },
-            { min: 100, max: 300, label: "100-300€" },
-            { min: 300, max: 500, label: "300-500€" },
-            { min: 500, max: 700, label: "500-700€" },
-            { min: 700, max: 900, label: "700-900€" },
-            { min: 900, max: 1100, label: "900-1100€" },
-            { min: 1100, max: 1300, label: "1100-1300€" },
-            { min: 1300, max: 1500, label: "1300-1500€" },
-            { min: 1500, max: Infinity, label: "1500€+" },
-          ];
-
-          return ranges.map((range) => ({
-            range: range.label,
-            count: topDrivers.filter((d) => {
-              const earnings = d.earnings || 0;
-              return earnings >= range.min && earnings < range.max;
-            }).length,
-          }));
-        }, [topDrivers]);
-
-        return (
-          <div className="card mt-4">
-            <div className="card-header">
-              <h2 className="card-title">
-                Distribution des revenus ({period === "week" ? "Cette semaine" : "Ce mois"})
-              </h2>
-            </div>
-            <div className="card-body">
-              <DistributionChart data={distributionData} />
-            </div>
+      <div className="analytics-page__header">
+        <div className="analytics-page__header-left">
+          <div className="analytics-page__title-section">
+            <FiBarChart2 className="analytics-page__title-icon" />
+            <h1 className="analytics-page__title">User Insights</h1>
           </div>
-        );
-      })()}
+          <div className="analytics-page__tabs">
+            <button className="analytics-page__tab analytics-page__tab--active">
+              <span className="analytics-page__tab-icon">●</span>
+              Overview
+            </button>
+            <button className="analytics-page__tab">My Users</button>
+          </div>
+        </div>
+        <div className="analytics-page__header-right">
+          <label className="analytics-page__toggle">
+            <input
+              type="checkbox"
+              checked={showSampleData}
+              onChange={(e) => setShowSampleData(e.target.checked)}
+            />
+            <span>Show sample data</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Key Insights Metrics */}
+      <div className="analytics-page__section">
+        <div className="analytics-page__section-header">
+          <h2 className="analytics-page__section-title">Key insights metrics</h2>
+          <select className="analytics-page__period-select" value={period} onChange={(e) => setPeriod(e.target.value as "week" | "month")}>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+          </select>
+        </div>
+        <div className="analytics-page__metrics-grid">
+          <StatCard
+            label="No. of Connected Users"
+            value={thisWeekMetrics.connectedUsers}
+            icon={<FiCheckCircle />}
+            color="primary"
+          />
+          <StatCard
+            label="No. of working Users"
+            value={thisWeekMetrics.workingUsers}
+            icon={<FiTrendingUp />}
+            color="success"
+          />
+          <StatCard
+            label="Total Gross Earnings"
+            value={`${thisWeekMetrics.totalGrossEarnings.toFixed(2)} €`}
+            icon={<FiDollarSign />}
+            color="info"
+          />
+        </div>
+      </div>
+
+      {/* Income Distribution Charts */}
+      <div className="analytics-page__charts-row">
+        <div className="analytics-page__chart-card">
+          <h3 className="analytics-page__chart-title">
+            Working users income distribution of this week
+          </h3>
+          <DistributionChart data={thisWeekDistribution} />
+          <div className="analytics-page__no-earnings-card">
+            Users with no earnings this week
+            <strong className="analytics-page__no-earnings-value">
+              {noEarningsThisWeekPercent.toFixed(2)}%
+            </strong>
+          </div>
+        </div>
+        <div className="analytics-page__chart-card">
+          <h3 className="analytics-page__chart-title">
+            Working users income distribution of last week
+          </h3>
+          <DistributionChart data={lastWeekDistribution} />
+          <div className="analytics-page__no-earnings-card">
+            Users with no earnings last week
+            <strong className="analytics-page__no-earnings-value">
+              {noEarningsLastWeekPercent.toFixed(2)}%
+            </strong>
+          </div>
+        </div>
+      </div>
+
+      {/* Top Users and No Earning Users Tables */}
+      <div className="analytics-page__tables-row">
+        <div className="analytics-page__table-card">
+          <TopUsersTable users={topUsers} period={period} />
+        </div>
+        <div className="analytics-page__table-card">
+          <NoEarningUsersTable users={noEarningUsers} period={period} />
+        </div>
+      </div>
+
+      {/* Evolution Chart */}
+      <div className="analytics-page__evolution-section">
+        <h3 className="analytics-page__evolution-title">
+          Total earnings & number of connected users evolution
+        </h3>
+        <EarningsEvolutionChart data={evolutionData} />
+      </div>
     </div>
   );
 }
-

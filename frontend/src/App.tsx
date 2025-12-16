@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { MainLayout } from "./components/layout/MainLayout";
 import { OverviewPage } from "./pages/OverviewPage";
-import { DriversPage } from "./pages/DriversPage";
+import { DriversManagementPage } from "./pages/DriversManagementPage";
+import { DriversDataPage } from "./pages/DriversDataPage";
 import { VehiclesPage } from "./pages/VehiclesPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
@@ -76,7 +77,19 @@ function App() {
           element={
             token ? (
               <MainLayout onLogout={handleLogout}>
-                <OverviewPage token={token} />
+                <OverviewPage token={token} onLogout={handleLogout} />
+              </MainLayout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/drivers/data"
+          element={
+            token ? (
+              <MainLayout onLogout={handleLogout}>
+                <DriversDataPage token={token} />
               </MainLayout>
             ) : (
               <Navigate to="/login" replace />
@@ -88,7 +101,7 @@ function App() {
           element={
             token ? (
               <MainLayout onLogout={handleLogout}>
-                <DriversPage token={token} />
+                <DriversManagementPage token={token} />
               </MainLayout>
             ) : (
               <Navigate to="/login" replace />
