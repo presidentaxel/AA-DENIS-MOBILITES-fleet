@@ -4,6 +4,7 @@ import { MainLayout } from "./components/layout/MainLayout";
 import { OverviewPage } from "./pages/OverviewPage";
 import { DriversManagementPage } from "./pages/DriversManagementPage";
 import { DriversDataPage } from "./pages/DriversDataPage";
+import { DriverPerformancePage } from "./pages/DriverPerformancePage";
 import { VehiclesPage } from "./pages/VehiclesPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
@@ -102,6 +103,18 @@ function App() {
             token ? (
               <MainLayout onLogout={handleLogout}>
                 <DriversManagementPage token={token} />
+              </MainLayout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/drivers/performance/:driverId"
+          element={
+            token ? (
+              <MainLayout onLogout={handleLogout}>
+                <DriverPerformancePage token={token} onLogout={handleLogout} />
               </MainLayout>
             ) : (
               <Navigate to="/login" replace />

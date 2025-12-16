@@ -75,8 +75,10 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
   // Calculer les métriques de cette semaine
   const thisWeekMetrics = useMemo(() => {
     const thisWeekOrders = orders.filter((o: any) => {
-      if (!o.order_created_timestamp) return false;
-      const orderDate = new Date(o.order_created_timestamp * 1000);
+      // Use order_finished_timestamp for earnings calculations
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (!orderTs) return false;
+      const orderDate = new Date(orderTs * 1000);
       return orderDate >= thisWeekStart && orderDate <= thisWeekEnd;
     });
 
@@ -99,8 +101,10 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
   // Distribution des revenus cette semaine
   const thisWeekDistribution = useMemo(() => {
     const thisWeekOrders = orders.filter((o: any) => {
-      if (!o.order_created_timestamp) return false;
-      const orderDate = new Date(o.order_created_timestamp * 1000);
+      // Use order_finished_timestamp for earnings calculations
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (!orderTs) return false;
+      const orderDate = new Date(orderTs * 1000);
       return orderDate >= thisWeekStart && orderDate <= thisWeekEnd;
     });
 
@@ -145,8 +149,10 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
   // Distribution des revenus la semaine dernière
   const lastWeekDistribution = useMemo(() => {
     const lastWeekOrders = orders.filter((o: any) => {
-      if (!o.order_created_timestamp) return false;
-      const orderDate = new Date(o.order_created_timestamp * 1000);
+      // Use order_finished_timestamp for earnings calculations
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (!orderTs) return false;
+      const orderDate = new Date(orderTs * 1000);
       return orderDate >= lastWeekStart && orderDate <= lastWeekEnd;
     });
 
@@ -189,8 +195,10 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
   // Pourcentage d'utilisateurs sans revenus cette semaine
   const noEarningsThisWeekPercent = useMemo(() => {
     const thisWeekOrders = orders.filter((o: any) => {
-      if (!o.order_created_timestamp) return false;
-      const orderDate = new Date(o.order_created_timestamp * 1000);
+      // Use order_finished_timestamp for earnings calculations
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (!orderTs) return false;
+      const orderDate = new Date(orderTs * 1000);
       return orderDate >= thisWeekStart && orderDate <= thisWeekEnd;
     });
 
@@ -208,8 +216,10 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
   // Pourcentage d'utilisateurs sans revenus la semaine dernière
   const noEarningsLastWeekPercent = useMemo(() => {
     const lastWeekOrders = orders.filter((o: any) => {
-      if (!o.order_created_timestamp) return false;
-      const orderDate = new Date(o.order_created_timestamp * 1000);
+      // Use order_finished_timestamp for earnings calculations
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (!orderTs) return false;
+      const orderDate = new Date(orderTs * 1000);
       return orderDate >= lastWeekStart && orderDate <= lastWeekEnd;
     });
 
@@ -227,8 +237,10 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
   // Top users et No earning users
   const { topUsers, noEarningUsers } = useMemo(() => {
     const thisWeekOrders = orders.filter((o: any) => {
-      if (!o.order_created_timestamp) return false;
-      const orderDate = new Date(o.order_created_timestamp * 1000);
+      // Use order_finished_timestamp for earnings calculations
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (!orderTs) return false;
+      const orderDate = new Date(orderTs * 1000);
       return orderDate >= thisWeekStart && orderDate <= thisWeekEnd;
     });
 
@@ -293,8 +305,10 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
 
     // Remplir avec les données réelles
     orders.forEach((o: any) => {
-      if (o.order_created_timestamp) {
-        const orderDate = new Date(o.order_created_timestamp * 1000);
+      // Use order_finished_timestamp for earnings calculations
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (orderTs) {
+        const orderDate = new Date(orderTs * 1000);
         const dateKey = orderDate.toISOString().slice(0, 10);
 
         if (dailyData.has(dateKey)) {

@@ -142,11 +142,19 @@ export function DateRangePicker({ dateFrom, dateTo, onApply, onClose }: DateRang
     }
   };
 
+  // Helper function to format date as YYYY-MM-DD in local timezone
+  const formatDateLocal = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const handleApply = () => {
     if (selectedStartDate && selectedEndDate) {
       onApply(
-        selectedStartDate.toISOString().slice(0, 10),
-        selectedEndDate.toISOString().slice(0, 10)
+        formatDateLocal(selectedStartDate),
+        formatDateLocal(selectedEndDate)
       );
       onClose();
     }

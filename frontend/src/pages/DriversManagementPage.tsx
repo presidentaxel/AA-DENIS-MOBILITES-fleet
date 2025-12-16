@@ -19,6 +19,8 @@ export type CombinedDriver = {
   platformCount: number;
   phone?: string;
   countryPhoneCode?: string;
+  boltId?: string; // ID Bolt spécifique pour la navigation vers la page de performance
+  uberId?: string; // ID Uber pour référence
 };
 
 export function DriversManagementPage({ token }: DriversManagementPageProps) {
@@ -58,17 +60,19 @@ export function DriversManagementPage({ token }: DriversManagementPageProps) {
 
   // Combiner et normaliser les drivers
   const combinedDrivers = useMemo<CombinedDriver[]>(() => {
+    // Utiliser l'email comme clé pour combiner les drivers de différentes plateformes
     const driverMap = new Map<string, CombinedDriver>();
 
-    // Traiter les drivers Uber
-    uberDrivers.forEach((driver) => {
+    // Traiter les drivers Bolt d'abord (pour prioriser l'ID Bolt comme ID principal)
+    boltDrivers.forEach((driver) => {
       const email = driver.email || "";
       const fullName = `${driver.first_name || ""} ${driver.last_name || ""}`.trim();
-      const driverId = driver.uuid || driver.id || email;
-
-      if (!driverMap.has(driverId)) {
-        driverMap.set(driverId, {
-          id: driverId,
+      const boltDriverId = driver.id || "";
+      
+      if (!driverMap.has(email)) {
+        const driverId = boltDriverId || email;
+        driverMap.set(email, {
+          id: driverId, // ID principal = ID Bolt si disponible
           fullName,
           email,
           platforms: [],
@@ -77,10 +81,50 @@ export function DriversManagementPage({ token }: DriversManagementPageProps) {
           platformCount: 0,
           phone: driver.phone,
           countryPhoneCode: driver.country_phone_code || driver.country_phone_code,
+          boltId: boltDriverId || undefined,
         });
       }
+      
+      const combined = driverMap.get(email)!;
+      if (!combined.platforms.includes("bolt")) {
+        combined.platforms.push("bolt");
+        combined.platformCount++;
+      }
+      // Mettre à jour les infos si elles manquent
+      if (!combined.phone && driver.phone) combined.phone = driver.phone;
+      if (!combined.countryPhoneCode && (driver.country_phone_code || driver.country_phone_code)) {
+        combined.countryPhoneCode = driver.country_phone_code || driver.country_phone_code;
+      }
+      // S'assurer que boltId et id sont à jour
+      if (boltDriverId) {
+        combined.boltId = boltDriverId;
+        combined.id = boltDriverId; // Prioriser l'ID Bolt comme ID principal
+      }
+    });
 
-      const combined = driverMap.get(driverId)!;
+    // Traiter les drivers Uber
+    uberDrivers.forEach((driver) => {
+      const email = driver.email || "";
+      const fullName = `${driver.first_name || ""} ${driver.last_name || ""}`.trim();
+      const uberDriverId = driver.uuid || driver.id || "";
+      
+      if (!driverMap.has(email)) {
+        const driverId = uberDriverId || email;
+        driverMap.set(email, {
+          id: driverId, // ID principal = ID Uber si pas de driver Bolt avec cet email
+          fullName,
+          email,
+          platforms: [],
+          connectedOn: driver.created_at || driver.connected_at || "",
+          status: "connected",
+          platformCount: 0,
+          phone: driver.phone,
+          countryPhoneCode: driver.country_phone_code || driver.country_phone_code,
+          uberId: uberDriverId || undefined,
+        });
+      }
+      
+      const combined = driverMap.get(email)!;
       if (!combined.platforms.includes("uber")) {
         combined.platforms.push("uber");
         combined.platformCount++;
@@ -90,37 +134,13 @@ export function DriversManagementPage({ token }: DriversManagementPageProps) {
       if (!combined.countryPhoneCode && (driver.country_phone_code || driver.country_phone_code)) {
         combined.countryPhoneCode = driver.country_phone_code || driver.country_phone_code;
       }
-    });
-
-    // Traiter les drivers Bolt
-    boltDrivers.forEach((driver) => {
-      const email = driver.email || "";
-      const fullName = `${driver.first_name || ""} ${driver.last_name || ""}`.trim();
-      const driverId = driver.id || email;
-
-      if (!driverMap.has(driverId)) {
-        driverMap.set(driverId, {
-          id: driverId,
-          fullName,
-          email,
-          platforms: [],
-          connectedOn: driver.created_at || driver.connected_at || "",
-          status: "connected",
-          platformCount: 0,
-          phone: driver.phone,
-          countryPhoneCode: driver.country_phone_code || driver.country_phone_code,
-        });
-      }
-
-      const combined = driverMap.get(driverId)!;
-      if (!combined.platforms.includes("bolt")) {
-        combined.platforms.push("bolt");
-        combined.platformCount++;
-      }
-      // Mettre à jour les infos si elles manquent
-      if (!combined.phone && driver.phone) combined.phone = driver.phone;
-      if (!combined.countryPhoneCode && (driver.country_phone_code || driver.country_phone_code)) {
-        combined.countryPhoneCode = driver.country_phone_code || driver.country_phone_code;
+      // Stocker l'ID Uber mais ne pas changer l'ID principal si on a déjà un ID Bolt
+      if (uberDriverId) {
+        combined.uberId = uberDriverId;
+        // Ne pas écraser l'ID si on a déjà un boltId
+        if (!combined.boltId && !combined.id) {
+          combined.id = uberDriverId;
+        }
       }
     });
 
@@ -232,18 +252,21 @@ export function DriversManagementPage({ token }: DriversManagementPageProps) {
 
       {/* Search and Filters */}
       <div className="users__header">
-        <div className="users__search-container">
-          <input
-            type="text"
-            className="users__search"
-            placeholder="Search by name"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <i className="icon ri-search-line"></i>
-        </div>
-
-        <div className="selector__wrapper" ref={statusMenuRef}>
+        <div className="users__search-container users__search-container--multi">
+          <div className="users__search-column">
+            <div className="users__search-wrapper">
+              <input
+                type="text"
+                className="users__search"
+                placeholder="Search by name"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <i className="icon ri-search-line"></i>
+            </div>
+          </div>
+          <div className="users__search-column">
+            <div className="selector__wrapper" ref={statusMenuRef}>
           <div className="input selector">
             <input
               type="text"
@@ -300,10 +323,11 @@ export function DriversManagementPage({ token }: DriversManagementPageProps) {
                 </ul>
               </div>
             )}
+            </div>
           </div>
-        </div>
-
-        <div className="selector__wrapper" ref={platformMenuRef}>
+          </div>
+          <div className="users__search-column">
+            <div className="selector__wrapper" ref={platformMenuRef}>
           <div className="input selector selector--platforms">
             <input
               type="text"
@@ -374,6 +398,8 @@ export function DriversManagementPage({ token }: DriversManagementPageProps) {
                 </ul>
               </div>
             )}
+            </div>
+          </div>
           </div>
         </div>
       </div>

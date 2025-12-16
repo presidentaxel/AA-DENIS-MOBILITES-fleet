@@ -181,8 +181,9 @@ export function DriversDataPage({ token }: DriversDataPageProps) {
           const toTimestamp = toDate.getTime();
           
           driverOrders = driverOrders.filter((o: any) => {
-            if (!o.order_created_timestamp) return false;
-            const orderTimestamp = o.order_created_timestamp * 1000;
+            // Use order_finished_timestamp for date filtering (when ride actually finished)
+            const orderTimestamp = (o.order_finished_timestamp || o.order_created_timestamp || 0) * 1000;
+            if (!orderTimestamp) return false;
             return orderTimestamp >= fromTimestamp && orderTimestamp <= toTimestamp;
           });
         }
@@ -210,8 +211,10 @@ export function DriversDataPage({ token }: DriversDataPageProps) {
         let totalWorkingSeconds = 0;
 
         driverOrders.forEach((o: any) => {
-          if (o.order_created_timestamp) {
-            const date = new Date(o.order_created_timestamp * 1000);
+          // Use order_finished_timestamp for time-based calculations
+          const orderTimestamp = o.order_finished_timestamp || o.order_created_timestamp;
+          if (orderTimestamp) {
+            const date = new Date(orderTimestamp * 1000);
             const hour = date.getHours();
             if (hour >= 5 && hour < 12) morningTrips++;
             else if (hour >= 12 && hour < 18) afternoonTrips++;
@@ -233,17 +236,31 @@ export function DriversDataPage({ token }: DriversDataPageProps) {
         let lastUpdate = "";
         if (driverOrders.length > 0) {
           const sortedOrders = [...driverOrders].sort(
-            (a: any, b: any) => (b.order_created_timestamp || 0) - (a.order_created_timestamp || 0)
+            (a: any, b: any) => {
+              const aTs = a.order_finished_timestamp || a.order_created_timestamp || 0;
+              const bTs = b.order_finished_timestamp || b.order_created_timestamp || 0;
+              return bTs - aTs;
+            }
           );
-          lastUpdate = new Date(sortedOrders[0].order_created_timestamp * 1000).toISOString();
+          const lastOrderTs = sortedOrders[0].order_finished_timestamp || sortedOrders[0].order_created_timestamp;
+          if (lastOrderTs) {
+            lastUpdate = new Date(lastOrderTs * 1000).toISOString();
+          }
         }
 
         let firstConnection = "";
         if (driverOrders.length > 0) {
           const sortedOrders = [...driverOrders].sort(
-            (a: any, b: any) => (a.order_created_timestamp || 0) - (b.order_created_timestamp || 0)
+            (a: any, b: any) => {
+              const aTs = a.order_finished_timestamp || a.order_created_timestamp || 0;
+              const bTs = b.order_finished_timestamp || b.order_created_timestamp || 0;
+              return aTs - bTs;
+            }
           );
-          firstConnection = new Date(sortedOrders[0].order_created_timestamp * 1000).toISOString();
+          const firstOrderTs = sortedOrders[0].order_finished_timestamp || sortedOrders[0].order_created_timestamp;
+          if (firstOrderTs) {
+            firstConnection = new Date(firstOrderTs * 1000).toISOString();
+          }
         }
 
         platformMap.set("bolt", {

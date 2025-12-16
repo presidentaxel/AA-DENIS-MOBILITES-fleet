@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { RiBook3Line } from "react-icons/ri";
 import { FiLogOut } from "react-icons/fi";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { getBoltDrivers, getBoltOrders, getMe } from "../api/fleetApi";
 import "../styles/overview-page.css";
 
@@ -85,6 +86,10 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
     loadUser();
   }, [token]);
 
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [allOrders, setAllOrders] = useState<any[]>([]);
+  const [allDrivers, setAllDrivers] = useState<any[]>([]);
+
   useEffect(() => {
     async function loadStats() {
       setLoading(true);
@@ -93,17 +98,24 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
           getBoltDrivers(token, { limit: 200 }).catch(() => []),
           getBoltOrders(
             token,
-            new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
             new Date().toISOString().slice(0, 10)
           ).catch(() => []),
         ]);
+
+        setAllOrders(orders);
+        setAllDrivers(drivers);
 
         const totalEarnings = orders.reduce((sum: number, order: any) => sum + (order.net_earnings || 0), 0);
 
         const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
         const activeDriverIds = new Set(
           orders
-            .filter((o: any) => o.order_created_timestamp && new Date(o.order_created_timestamp * 1000) >= weekAgo)
+            .filter((o: any) => {
+              // Use order_finished_timestamp for active driver detection
+              const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+              return orderTs && new Date(orderTs * 1000) >= weekAgo;
+            })
             .map((o: any) => o.driver_uuid)
             .filter(Boolean)
         );
@@ -127,6 +139,107 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
 
     loadStats();
   }, [token]);
+
+  // Prepare chart data with adaptive scaling
+  const processedChartData = useMemo(() => {
+    if (!allOrders.length || !allDrivers.length) return [];
+
+    // Group orders by week
+    const ordersByWeek = new Map<string, { earnings: number; driverIds: Set<string> }>();
+    const driverConnectionsByWeek = new Map<string, Set<string>>();
+
+    // Helper function to get week key
+    const getWeekKey = (date: Date): string => {
+      const year = date.getFullYear();
+      const startOfYear = new Date(year, 0, 1);
+      const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+      const week = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+      return `${year}-W${week.toString().padStart(2, "0")}`;
+    };
+
+    allOrders.forEach((order: any) => {
+      // Use order_finished_timestamp for chart data (when ride actually finished)
+      const orderTimestamp = order.order_finished_timestamp || order.order_created_timestamp;
+      if (!orderTimestamp) return;
+      const date = new Date(orderTimestamp * 1000);
+      const weekKey = getWeekKey(date);
+      
+      if (!ordersByWeek.has(weekKey)) {
+        ordersByWeek.set(weekKey, { earnings: 0, driverIds: new Set() });
+      }
+      const weekData = ordersByWeek.get(weekKey)!;
+      weekData.earnings += order.net_earnings || 0;
+      if (order.driver_uuid) {
+        weekData.driverIds.add(order.driver_uuid);
+      }
+    });
+
+    // Track driver connections by week
+    allDrivers.forEach((driver: any) => {
+      if (!driver.created_at && !driver.connected_at) return;
+      const connectionDate = new Date(driver.created_at || driver.connected_at);
+      const weekKey = getWeekKey(connectionDate);
+      
+      if (!driverConnectionsByWeek.has(weekKey)) {
+        driverConnectionsByWeek.set(weekKey, new Set());
+      }
+      driverConnectionsByWeek.get(weekKey)!.add(driver.id || driver.email);
+    });
+
+    // Convert to array and sort by date
+    const chartDataArray = Array.from(ordersByWeek.entries())
+      .map(([week, data]) => {
+        const [year, weekNum] = week.split("-W");
+        const weekNumber = parseInt(weekNum);
+        const startOfYear = new Date(parseInt(year), 0, 1);
+        const firstMonday = new Date(startOfYear);
+        const dayOfWeek = startOfYear.getDay();
+        const daysToAdd = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
+        firstMonday.setDate(1 + daysToAdd);
+        const date = new Date(firstMonday);
+        date.setDate(firstMonday.getDate() + (weekNumber - 1) * 7);
+        
+        return {
+          weekKey: week,
+          dateObj: date,
+          date: date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+          earnings: data.earnings,
+          connected: (driverConnectionsByWeek.get(week)?.size || 0) + data.driverIds.size,
+        };
+      })
+      .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
+      .map(({ weekKey, dateObj, ...rest }) => rest); // Remove helper properties
+
+    return chartDataArray;
+  }, [allOrders, allDrivers]);
+
+  // Calculate adaptive domains
+  const chartConfig = useMemo(() => {
+    if (processedChartData.length === 0) {
+      return {
+        maxEarnings: 1000,
+        maxConnected: 10,
+        earningsTickFormatter: (value: number) => `€${(value / 1000).toFixed(0)}k`,
+      };
+    }
+
+    const maxEarnings = Math.max(...processedChartData.map((d) => d.earnings), 1);
+    const maxConnected = Math.max(...processedChartData.map((d) => d.connected), 1);
+
+    // Adaptive tick formatter based on max value
+    let earningsTickFormatter = (value: number) => `€${value.toFixed(0)}`;
+    if (maxEarnings >= 1000000) {
+      earningsTickFormatter = (value: number) => `€${(value / 1000000).toFixed(1)}M`;
+    } else if (maxEarnings >= 1000) {
+      earningsTickFormatter = (value: number) => `€${(value / 1000).toFixed(0)}k`;
+    }
+
+    return {
+      maxEarnings: Math.ceil(maxEarnings * 1.1),
+      maxConnected: Math.ceil(maxConnected * 1.1),
+      earningsTickFormatter,
+    };
+  }, [processedChartData]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -343,10 +456,75 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
           <div className="card__head">
             <h5>Total earnings &amp; number of connected users evolution</h5>
           </div>
-          <div className="empty-state">
-            <h6>Not enough data for the selected User</h6>
-            <p>More data collected is needed for analysis purposes</p>
-          </div>
+          {processedChartData.length === 0 ? (
+            <div className="empty-state">
+              <h6>Not enough data for the selected User</h6>
+              <p>More data collected is needed for analysis purposes</p>
+            </div>
+          ) : (
+            <div className="chart-container">
+              <ResponsiveContainer width="100%" height={400}>
+                <LineChart data={processedChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 12, fill: "#64748b", fontFamily: "'Nunito Sans', sans-serif" }}
+                    label={{ value: "Time of earnings", position: "insideBottom", offset: -5, style: { fill: "#64748b", fontFamily: "'Nunito Sans', sans-serif" } }}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fontSize: 12, fill: "#64748b", fontFamily: "'Nunito Sans', sans-serif" }}
+                    label={{ value: "Number of connected users", angle: -90, position: "insideLeft", style: { fill: "#3b82f6", fontFamily: "'Nunito Sans', sans-serif" } }}
+                    domain={[0, chartConfig.maxConnected]}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fontSize: 12, fill: "#64748b", fontFamily: "'Nunito Sans', sans-serif" }}
+                    label={{ value: "Total weekly earnings", angle: 90, position: "insideRight", style: { fill: "#f97316", fontFamily: "'Nunito Sans', sans-serif" } }}
+                    domain={[0, chartConfig.maxEarnings]}
+                    tickFormatter={chartConfig.earningsTickFormatter}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      padding: "8px 12px",
+                      fontFamily: "'Nunito Sans', sans-serif",
+                    }}
+                    formatter={(value: number, name: string) => {
+                      if (name === "earnings") {
+                        return [`€${new Intl.NumberFormat("en-US").format(value)}`, "Earnings"];
+                      }
+                      return [value, "Connected Users"];
+                    }}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontFamily: "'Nunito Sans', sans-serif", fontSize: "12px" }}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="earnings"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    name="Earnings"
+                    dot={{ r: 4 }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="connected"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    name="Connected Users"
+                    dot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </div>
 

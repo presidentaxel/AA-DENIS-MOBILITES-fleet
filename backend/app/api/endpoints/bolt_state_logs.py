@@ -20,18 +20,49 @@ def list_bolt_state_logs(
     end: datetime = Query(..., alias="to"),
 ):
     """Liste les logs d'état Bolt pour un driver donné."""
+    from datetime import timezone
+    
+    # Parse dates: FastAPI gives us naive datetime for YYYY-MM-DD format
+    # We interpret them as local dates (start and end of day in local timezone)
+    # Then convert to UTC timestamps for comparison with stored timestamps
+    
+    # If naive datetime (from YYYY-MM-DD), treat as local timezone start/end of day
+    if start.tzinfo is None:
+        # Start of day in local timezone
+        start_local = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Convert local to UTC (assuming server is in UTC or we want to treat as UTC)
+        start = start_local.replace(tzinfo=timezone.utc)
+    else:
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    if end.tzinfo is None:
+        # End of day in local timezone
+        end_local = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+        # Convert local to UTC
+        end = end_local.replace(tzinfo=timezone.utc)
+    else:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+    
     start_ts = int(start.timestamp())
     end_ts = int(end.timestamp())
     
-    return (
+    # Double check: ensure we filter by the correct driver
+    query = (
         db.query(BoltStateLog)
         .filter(BoltStateLog.org_id == current_user["org_id"])
         .filter(BoltStateLog.driver_uuid == driver_id)
         .filter(BoltStateLog.created >= start_ts)
         .filter(BoltStateLog.created <= end_ts)
         .order_by(BoltStateLog.created.desc())
-        .all()
     )
+    
+    results = query.all()
+    
+    # Additional safety check: filter results to ensure driver_uuid matches
+    # (in case of any edge cases)
+    results = [log for log in results if log.driver_uuid == driver_id]
+    
+    return results
 
 
 @router.get("/state-logs", response_model=list[BoltStateLogSchema])

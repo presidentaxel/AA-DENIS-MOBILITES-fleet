@@ -384,8 +384,6 @@
   justify-content: center;
   gap: 16px;
   padding: 20px;
-  border-top: 1px solid var(--color-grey-outline);
-  background: var(--color-white);
 }
 
 .pagination-btn {

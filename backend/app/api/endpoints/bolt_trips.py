@@ -20,10 +20,23 @@ def list_bolt_orders(
     end: datetime = Query(..., alias="to"),
 ):
     """Liste les commandes (orders) Bolt pour un driver donné."""
+    from datetime import timezone
+    
+    # Parse dates: treat naive datetime as local dates
+    if start.tzinfo is None:
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+    else:
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    if end.tzinfo is None:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+    else:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+    
     start_ts = int(start.timestamp())
     end_ts = int(end.timestamp())
     
-    return (
+    results = (
         db.query(BoltOrder)
         .filter(BoltOrder.org_id == current_user["org_id"])
         .filter(BoltOrder.driver_uuid == driver_id)
@@ -32,6 +45,11 @@ def list_bolt_orders(
         .order_by(BoltOrder.order_created_timestamp.desc())
         .all()
     )
+    
+    # Additional safety check
+    results = [order for order in results if order.driver_uuid == driver_id]
+    
+    return results
 
 
 @router.get("/orders", response_model=list[BoltOrderSchema])
@@ -43,6 +61,19 @@ def list_all_bolt_orders(
     driver_uuid: str | None = Query(None, description="Filtrer par driver UUID"),
 ):
     """Liste toutes les commandes (orders) Bolt pour l'organisation."""
+    from datetime import timezone
+    
+    # Parse dates: treat naive datetime as local dates
+    if start.tzinfo is None:
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+    else:
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    if end.tzinfo is None:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+    else:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+    
     start_ts = int(start.timestamp())
     end_ts = int(end.timestamp())
     
@@ -53,8 +84,16 @@ def list_all_bolt_orders(
         .filter(BoltOrder.order_created_timestamp <= end_ts)
     )
     
+    # IMPORTANT: Always filter by driver_uuid if provided
     if driver_uuid:
         query = query.filter(BoltOrder.driver_uuid == driver_uuid)
     
-    return query.order_by(BoltOrder.order_created_timestamp.desc()).all()
+    results = query.order_by(BoltOrder.order_created_timestamp.desc()).all()
+    
+    # Additional safety check: filter results again by driver_uuid if provided
+    # This ensures no orders from other drivers leak through
+    if driver_uuid:
+        results = [order for order in results if order.driver_uuid == driver_uuid]
+    
+    return results
 

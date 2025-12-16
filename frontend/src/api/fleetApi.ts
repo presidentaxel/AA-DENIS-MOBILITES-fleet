@@ -96,6 +96,14 @@ export const getBoltOrders = async (token: string, from: string, to: string, dri
   return res.data;
 };
 
+export const getBoltStateLogs = async (token: string, driverId: string, from: string, to: string) => {
+  const res = await api.get(`/bolt/drivers/${driverId}/state-logs`, {
+    params: { from, to },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.data;
+};
+
 export const getBoltVehicles = async (token: string, params?: { limit?: number; offset?: number }) => {
   const res = await api.get("/bolt/vehicles", {
     params,

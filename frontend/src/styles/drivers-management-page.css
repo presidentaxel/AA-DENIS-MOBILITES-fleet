@@ -52,6 +52,23 @@
   min-width: 200px;
 }
 
+.users__search-container--multi {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+  flex: 1;
+}
+
+.users__search-column {
+  display: flex;
+  align-items: center;
+}
+
+.users__search-wrapper {
+  position: relative;
+  width: 100%;
+}
+
 .users__search {
   width: 100%;
   padding: 10px 12px 10px 40px;
@@ -68,7 +85,7 @@
   border-color: var(--color-blue-main);
 }
 
-.users__search-container .icon {
+.users__search-wrapper .icon {
   position: absolute;
   left: 12px;
   top: 50%;
@@ -76,6 +93,7 @@
   color: var(--vc-gray-500);
   font-size: 18px;
   pointer-events: none;
+  z-index: 1;
 }
 
 /* Selector Dropdowns */

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { RiCloseLine, RiArrowRightUpLine, RiPieChart2Line } from "react-icons/ri";
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer } from "recharts";
 import { PlatformLogo } from "./PlatformLogo";
@@ -16,6 +17,7 @@ type DriverDetailsDrawerProps = {
 import { CombinedDriver } from "../pages/DriversManagementPage";
 
 export function DriverDetailsDrawer({ driver, isOpen, onClose, token }: DriverDetailsDrawerProps) {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [periodFilter, setPeriodFilter] = useState("Current Year");
@@ -123,8 +125,10 @@ export function DriverDetailsDrawer({ driver, isOpen, onClose, token }: DriverDe
     // Calculer l'heure la plus active
     const hourCounts: Record<number, number> = {};
     driverOrders.forEach((o: any) => {
-      if (o.order_created_timestamp) {
-        const date = new Date(o.order_created_timestamp * 1000);
+      // Use order_finished_timestamp for time-based calculations
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (orderTs) {
+        const date = new Date(orderTs * 1000);
         const hour = date.getHours();
         hourCounts[hour] = (hourCounts[hour] || 0) + 1;
       }
@@ -494,8 +498,16 @@ export function DriverDetailsDrawer({ driver, isOpen, onClose, token }: DriverDe
       {/* Footer */}
       <div className="footer">
         <div className="cta">
-          <button className="button button--primary w-full">
-            User Details <i className="ri-arrow-right-up-line after"></i>
+          <button
+            className="button button--primary w-full"
+            onClick={() => {
+              // Utiliser boltId si disponible (pour la navigation vers la page de performance Bolt)
+              // Sinon utiliser l'ID principal
+              const driverIdToUse = driver.boltId || driver.id;
+              navigate(`/drivers/performance/${driverIdToUse}`);
+            }}
+          >
+            Performance Index <i className="ri-arrow-right-up-line after"></i>
           </button>
         </div>
         </div>
