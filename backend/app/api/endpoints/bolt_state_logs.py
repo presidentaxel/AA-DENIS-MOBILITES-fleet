@@ -23,28 +23,35 @@ def list_bolt_state_logs(
     from datetime import timezone
     
     # Parse dates: FastAPI gives us naive datetime for YYYY-MM-DD format
-    # We interpret them as local dates (start and end of day in local timezone)
-    # Then convert to UTC timestamps for comparison with stored timestamps
+    # The timestamps in the database (created) are Unix timestamps in UTC
+    # We need to interpret the dates as the start/end of day in UTC
+    # Since the frontend sends YYYY-MM-DD, we treat it as a date (not datetime)
+    # and convert to UTC timestamps for the start and end of that day
     
-    # If naive datetime (from YYYY-MM-DD), treat as local timezone start/end of day
+    # If naive datetime (from YYYY-MM-DD), treat as date and convert to UTC day boundaries
     if start.tzinfo is None:
-        # Start of day in local timezone
-        start_local = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Convert local to UTC (assuming server is in UTC or we want to treat as UTC)
-        start = start_local.replace(tzinfo=timezone.utc)
+        # Treat as start of day in UTC (00:00:00 UTC)
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
     else:
+        # Already has timezone, ensure it's start of day
         start = start.replace(hour=0, minute=0, second=0, microsecond=0)
     
     if end.tzinfo is None:
-        # End of day in local timezone
-        end_local = end.replace(hour=23, minute=59, second=59, microsecond=999999)
-        # Convert local to UTC
-        end = end_local.replace(tzinfo=timezone.utc)
+        # Treat as end of day in UTC (23:59:59.999999 UTC)
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
     else:
+        # Already has timezone, ensure it's end of day
         end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
     
+    # Convert to Unix timestamps (seconds since epoch, UTC)
+    # These timestamps will be compared directly with the 'created' column (bigint)
     start_ts = int(start.timestamp())
     end_ts = int(end.timestamp())
+    
+    # Debug: log the date range being queried
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Querying state logs for driver {driver_id} from {start.date()} (ts: {start_ts}) to {end.date()} (ts: {end_ts})")
     
     # Double check: ensure we filter by the correct driver
     query = (
@@ -57,6 +64,7 @@ def list_bolt_state_logs(
     )
     
     results = query.all()
+    logger.info(f"Found {len(results)} state logs for driver {driver_id} in date range")
     
     # Additional safety check: filter results to ensure driver_uuid matches
     # (in case of any edge cases)

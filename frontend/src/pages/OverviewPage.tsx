@@ -1,7 +1,6 @@
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { RiBook3Line } from "react-icons/ri";
 import { FiLogOut } from "react-icons/fi";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { getBoltDrivers, getBoltOrders, getMe } from "../api/fleetApi";
 import "../styles/overview-page.css";
 
@@ -18,31 +17,31 @@ type OverviewStats = {
 
 const knowledgeBaseCards = [
   {
-    title: "Customize Connect with SDKs",
-    description: "Create your Connect customization to easily decide how Connect appears in your application or website.",
+    title: "Personnaliser Connect avec les SDKs",
+    description: "Créez votre personnalisation Connect pour décider facilement de l'apparence de Connect dans votre application ou site web.",
     link: "https://developers.getrollee.com/docs/connect-sdk",
-    imageAlt: "Connect customization",
+    imageAlt: "Personnalisation Connect",
     image: "/assets/images/CustomizeConnectwithSDKs.svg",
   },
   {
-    title: "Developer Documentation",
-    description: "Explore the Rollee Connect and learn what to expect when users connect their work accounts.",
+    title: "Documentation développeur",
+    description: "Explorez Rollee Connect et découvrez ce à quoi vous attendre lorsque les utilisateurs connectent leurs comptes professionnels.",
     link: "https://developers.getrollee.com/docs",
-    imageAlt: "Developer documentation",
+    imageAlt: "Documentation développeur",
     image: "/assets/images/DeveloperDocumentation.svg",
   },
   {
-    title: "Recipes",
-    description: "This Recipe guides you through three simple steps which will let you use Rollee Connect.",
+    title: "Recettes",
+    description: "Cette recette vous guide à travers trois étapes simples qui vous permettront d'utiliser Rollee Connect.",
     link: "https://developers.getrollee.com/recipes",
-    imageAlt: "Rollee recipes",
+    imageAlt: "Recettes Rollee",
     image: "/assets/images/Recipes.svg",
   },
   {
-    title: "Platform Coverage",
-    description: "We've built platform coverage across all major platforms so you can focus on building your product.",
+    title: "Couverture des plateformes",
+    description: "Nous avons construit une couverture de plateformes sur toutes les principales plateformes pour que vous puissiez vous concentrer sur la construction de votre produit.",
     link: "#",
-    imageAlt: "Platform coverage",
+    imageAlt: "Couverture des plateformes",
     image: "/assets/images/PlatformCoverage.svg",
   },
 ];
@@ -86,7 +85,6 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
     loadUser();
   }, [token]);
 
-  const [chartData, setChartData] = useState<any[]>([]);
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [allDrivers, setAllDrivers] = useState<any[]>([]);
 
@@ -140,107 +138,6 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
     loadStats();
   }, [token]);
 
-  // Prepare chart data with adaptive scaling
-  const processedChartData = useMemo(() => {
-    if (!allOrders.length || !allDrivers.length) return [];
-
-    // Group orders by week
-    const ordersByWeek = new Map<string, { earnings: number; driverIds: Set<string> }>();
-    const driverConnectionsByWeek = new Map<string, Set<string>>();
-
-    // Helper function to get week key
-    const getWeekKey = (date: Date): string => {
-      const year = date.getFullYear();
-      const startOfYear = new Date(year, 0, 1);
-      const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-      const week = Math.ceil((days + startOfYear.getDay() + 1) / 7);
-      return `${year}-W${week.toString().padStart(2, "0")}`;
-    };
-
-    allOrders.forEach((order: any) => {
-      // Use order_finished_timestamp for chart data (when ride actually finished)
-      const orderTimestamp = order.order_finished_timestamp || order.order_created_timestamp;
-      if (!orderTimestamp) return;
-      const date = new Date(orderTimestamp * 1000);
-      const weekKey = getWeekKey(date);
-      
-      if (!ordersByWeek.has(weekKey)) {
-        ordersByWeek.set(weekKey, { earnings: 0, driverIds: new Set() });
-      }
-      const weekData = ordersByWeek.get(weekKey)!;
-      weekData.earnings += order.net_earnings || 0;
-      if (order.driver_uuid) {
-        weekData.driverIds.add(order.driver_uuid);
-      }
-    });
-
-    // Track driver connections by week
-    allDrivers.forEach((driver: any) => {
-      if (!driver.created_at && !driver.connected_at) return;
-      const connectionDate = new Date(driver.created_at || driver.connected_at);
-      const weekKey = getWeekKey(connectionDate);
-      
-      if (!driverConnectionsByWeek.has(weekKey)) {
-        driverConnectionsByWeek.set(weekKey, new Set());
-      }
-      driverConnectionsByWeek.get(weekKey)!.add(driver.id || driver.email);
-    });
-
-    // Convert to array and sort by date
-    const chartDataArray = Array.from(ordersByWeek.entries())
-      .map(([week, data]) => {
-        const [year, weekNum] = week.split("-W");
-        const weekNumber = parseInt(weekNum);
-        const startOfYear = new Date(parseInt(year), 0, 1);
-        const firstMonday = new Date(startOfYear);
-        const dayOfWeek = startOfYear.getDay();
-        const daysToAdd = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
-        firstMonday.setDate(1 + daysToAdd);
-        const date = new Date(firstMonday);
-        date.setDate(firstMonday.getDate() + (weekNumber - 1) * 7);
-        
-        return {
-          weekKey: week,
-          dateObj: date,
-          date: date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
-          earnings: data.earnings,
-          connected: (driverConnectionsByWeek.get(week)?.size || 0) + data.driverIds.size,
-        };
-      })
-      .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
-      .map(({ weekKey, dateObj, ...rest }) => rest); // Remove helper properties
-
-    return chartDataArray;
-  }, [allOrders, allDrivers]);
-
-  // Calculate adaptive domains
-  const chartConfig = useMemo(() => {
-    if (processedChartData.length === 0) {
-      return {
-        maxEarnings: 1000,
-        maxConnected: 10,
-        earningsTickFormatter: (value: number) => `€${(value / 1000).toFixed(0)}k`,
-      };
-    }
-
-    const maxEarnings = Math.max(...processedChartData.map((d) => d.earnings), 1);
-    const maxConnected = Math.max(...processedChartData.map((d) => d.connected), 1);
-
-    // Adaptive tick formatter based on max value
-    let earningsTickFormatter = (value: number) => `€${value.toFixed(0)}`;
-    if (maxEarnings >= 1000000) {
-      earningsTickFormatter = (value: number) => `€${(value / 1000000).toFixed(1)}M`;
-    } else if (maxEarnings >= 1000) {
-      earningsTickFormatter = (value: number) => `€${(value / 1000).toFixed(0)}k`;
-    }
-
-    return {
-      maxEarnings: Math.ceil(maxEarnings * 1.1),
-      maxConnected: Math.ceil(maxConnected * 1.1),
-      earningsTickFormatter,
-    };
-  }, [processedChartData]);
-
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
@@ -269,7 +166,7 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
               <path d="M4 13H16V15H4V13Z" fill="white" />
             </svg>
           </div>
-          <h1>Overview</h1>
+          <h1>Vue d'ensemble</h1>
         </div>
         <div className="overview-profile" ref={profileMenuRef}>
           <div
@@ -284,7 +181,7 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
             <div className="overview-profile__menu">
               <button className="overview-profile__menu-item" onClick={onLogout}>
                 <FiLogOut size={16} />
-                <span>Sign Out</span>
+                <span>Déconnexion</span>
               </button>
             </div>
           )}
@@ -296,7 +193,7 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
           <div className="section-heading__icon" aria-hidden>
             <RiBook3Line size={22} color="#fe9543" />
           </div>
-          <h2>Knowledge Base</h2>
+          <h2>Base de connaissances</h2>
         </div>
 
         <div className="knowledge-grid">
@@ -309,7 +206,7 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
                 <div className="knowledge-card__title">{card.title}</div>
                 <p className="knowledge-card__desc">{card.description}</p>
                 <a className="knowledge-card__link" href={card.link} target="_blank" rel="noreferrer">
-                  Learn more
+                  En savoir plus
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path
                       d="M13 5H19V11"
@@ -340,36 +237,18 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
         </div>
       </section>
 
-      <div className="cta-banner">
-        <div className="cta-banner__image" aria-hidden>
-          <img src="/assets/images/question.19e1ed8e.svg" alt="Help illustration" />
-        </div>
-        <div className="cta-banner__content">
-          <h3>Not sure where to start? We’re here to help you!</h3>
-          <p>
-            Need a custom solution or additional connectors to improve your
-            <br />
-            experience? Let's talk!
-          </p>
-          <div className="cta-banner__actions">
-            <button className="cta-banner__btn primary">Contact Support Team</button>
-            <button className="cta-banner__btn secondary">Book a Demo Walkthrough</button>
-          </div>
-        </div>
-      </div>
-
       <div className="insights-grid">
         <div className="card">
           <div className="card__head">
-            <h5>Key insights metrics</h5>
+            <h5>Métriques clés</h5>
             <div className="combo-button">
-              <span>This Week</span>
+              <span>Cette semaine</span>
               <svg width="10" height="6" viewBox="0 0 8 4" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M4 4L0 0H8L4 4Z" fill="currentColor" />
               </svg>
               <div className="combo-button__menu">
-                <button className="combo-button__item">Last Week</button>
-                <button className="combo-button__item combo-button__item--active">This Week</button>
+                <button className="combo-button__item">Semaine dernière</button>
+                <button className="combo-button__item combo-button__item--active">Cette semaine</button>
               </div>
             </div>
           </div>
@@ -394,7 +273,7 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
                 </svg>
               </div>
               <div>
-                <div className="metric-card__label">No. of Connected Users</div>
+                <div className="metric-card__label">Nombre d'utilisateurs connectés</div>
                 <div className="metric-card__value">{formatNumber(loading ? null : stats.connectedUsers)}</div>
               </div>
             </div>
@@ -418,7 +297,7 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
                 </svg>
               </div>
               <div>
-                <div className="metric-card__label">No. of working Users</div>
+                <div className="metric-card__label">Nombre d'utilisateurs actifs</div>
                 <div className="metric-card__value">{formatNumber(loading ? null : stats.workingUsers)}</div>
               </div>
             </div>
@@ -439,7 +318,7 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
                 </svg>
               </div>
               <div>
-                <div className="metric-card__label">Total Gross Earnings</div>
+                <div className="metric-card__label">Revenus bruts totaux</div>
                 <div className="metric-card__value">
                   {formatNumber(loading ? null : stats.grossEarnings, {
                     style: "currency",
@@ -451,97 +330,22 @@ export function OverviewPage({ token, onLogout }: OverviewPageProps) {
             </div>
           </div>
         </div>
-
-        <div className="card chart-card">
-          <div className="card__head">
-            <h5>Total earnings &amp; number of connected users evolution</h5>
-          </div>
-          {processedChartData.length === 0 ? (
-            <div className="empty-state">
-              <h6>Not enough data for the selected User</h6>
-              <p>More data collected is needed for analysis purposes</p>
-            </div>
-          ) : (
-            <div className="chart-container">
-              <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={processedChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 12, fill: "#64748b", fontFamily: "'Nunito Sans', sans-serif" }}
-                    label={{ value: "Time of earnings", position: "insideBottom", offset: -5, style: { fill: "#64748b", fontFamily: "'Nunito Sans', sans-serif" } }}
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    tick={{ fontSize: 12, fill: "#64748b", fontFamily: "'Nunito Sans', sans-serif" }}
-                    label={{ value: "Number of connected users", angle: -90, position: "insideLeft", style: { fill: "#3b82f6", fontFamily: "'Nunito Sans', sans-serif" } }}
-                    domain={[0, chartConfig.maxConnected]}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tick={{ fontSize: 12, fill: "#64748b", fontFamily: "'Nunito Sans', sans-serif" }}
-                    label={{ value: "Total weekly earnings", angle: 90, position: "insideRight", style: { fill: "#f97316", fontFamily: "'Nunito Sans', sans-serif" } }}
-                    domain={[0, chartConfig.maxEarnings]}
-                    tickFormatter={chartConfig.earningsTickFormatter}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "white",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: "8px",
-                      padding: "8px 12px",
-                      fontFamily: "'Nunito Sans', sans-serif",
-                    }}
-                    formatter={(value: number, name: string) => {
-                      if (name === "earnings") {
-                        return [`€${new Intl.NumberFormat("en-US").format(value)}`, "Earnings"];
-                      }
-                      return [value, "Connected Users"];
-                    }}
-                  />
-                  <Legend
-                    wrapperStyle={{ fontFamily: "'Nunito Sans', sans-serif", fontSize: "12px" }}
-                  />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="earnings"
-                    stroke="#f97316"
-                    strokeWidth={2}
-                    name="Earnings"
-                    dot={{ r: 4 }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="connected"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    name="Connected Users"
-                    dot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
       </div>
 
       <div className="cta-banner cta-banner--single">
         <div className="cta-banner__image" aria-hidden>
-          <img src="/assets/images/question.19e1ed8e.svg" alt="Help illustration" />
+          <img src="/assets/images/question.19e1ed8e.svg" alt="Illustration d'aide" />
         </div>
         <div className="cta-banner__content">
-          <h3>Not sure where to start? We’re here to help you!</h3>
+          <h3>Vous ne savez pas par où commencer ? Nous sommes là pour vous aider !</h3>
           <p>
-            Need a custom solution or additional connectors to improve your
+            Besoin d'une solution personnalisée ou de connecteurs supplémentaires pour améliorer votre
             <br />
-            experience? Let's talk!
+            expérience ? Parlons-en !
           </p>
           <div className="cta-banner__actions">
-            <button className="cta-banner__btn primary">Contact Support Team</button>
-            <button className="cta-banner__btn secondary">Book a Demo Walkthrough</button>
+            <button className="cta-banner__btn primary">Contacter l'équipe de support</button>
+            <button className="cta-banner__btn secondary">Réserver une démonstration</button>
           </div>
         </div>
       </div>

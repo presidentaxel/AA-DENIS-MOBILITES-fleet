@@ -4,6 +4,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.router_fleet import router as fleet_router
 from app.api.router_bolt import router as bolt_router
+from app.api.router_heetch import router as heetch_router
 from app.auth.routes_auth import router as auth_router
 from app.core import logging as app_logging
 # Désactiver la création automatique des tables car on utilise Supabase
@@ -37,6 +38,7 @@ def create_app() -> FastAPI:
         - **Auth** : Authentification et gestion des utilisateurs
         - **Fleet** : Endpoints pour les données Uber
         - **Bolt** : Endpoints pour les données Bolt
+        - **Heetch** : Endpoints pour les données Heetch (scraping)
         - **Webhooks** : Webhooks pour les notifications
         
         ## Documentation complète
@@ -63,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/auth", tags=["auth"])
     app.include_router(fleet_router, prefix="/fleet", tags=["fleet"])
     app.include_router(bolt_router, tags=["bolt"])
+    app.include_router(heetch_router, tags=["heetch"])
     app.include_router(webhook_router, prefix="/webhooks", tags=["webhooks"])
 
     @app.on_event("startup")
@@ -81,46 +84,60 @@ def create_app() -> FastAPI:
         logger = app_logging.get_logger(__name__)
         settings = get_settings()
         
-        def sync_on_startup():
-            try:
-                # Utiliser org_id par défaut
-                org_id = settings.uber_default_org_id or "default_org"
-                logger.info(f"[STARTUP SYNC] Déclenchement sync automatique au démarrage pour org_id={org_id}")
-                
-                supabase_client = get_supabase_client()
-                db = SupabaseDB(supabase_client)
-                
-                # Synchroniser uniquement les données légères au démarrage (orgs, drivers, vehicles)
-                # Les données lourdes (orders, state_logs) sont synchronisées via le scheduler quotidien
-                from app.bolt_integration.services_orgs import sync_orgs
-                from app.bolt_integration.services_drivers import sync_drivers
-                from app.bolt_integration.services_vehicles import sync_vehicles
-                from app.bolt_integration.bolt_client import BoltClient
-                from app.models.bolt_driver import BoltDriver
-                from app.models.bolt_vehicle import BoltVehicle
-                
-                client = BoltClient()
-                
-                # Sync organizations
-                sync_orgs(db, client, org_id=org_id)
-                
-                # Sync drivers
-                sync_drivers(db, client, org_id=org_id)
-                driver_count = db.query(BoltDriver).filter(BoltDriver.org_id == org_id).count()
-                
-                # Sync vehicles
-                sync_vehicles(db, client, org_id=org_id)
-                vehicle_count = db.query(BoltVehicle).filter(BoltVehicle.org_id == org_id).count()
-                
-                logger.info(f"[STARTUP SYNC] Résultats: drivers={driver_count}, vehicles={vehicle_count}")
-                logger.info(f"[STARTUP SYNC] Sync légère terminée. Orders et state_logs seront synchronisés par le scheduler quotidien.")
-            except Exception as e:
-                logger.error(f"[STARTUP SYNC] Erreur lors de la sync automatique au démarrage: {str(e)}", exc_info=True)
+        # Désactiver la sync automatique au démarrage en production
+        # En production, les données sont synchronisées uniquement via le scheduler
+        # Par défaut, désactiver la sync pour éviter les problèmes de démarrage (sauf en dev local)
+        import os
+        app_env = os.getenv("APP_ENV", settings.app_env or "dev").lower()
+        # Par défaut, skip la sync sauf si explicitement activée en dev
+        skip_startup_sync_default = "true" if app_env in ("prod", "production") else "false"
+        skip_startup_sync = os.getenv("SKIP_STARTUP_SYNC", skip_startup_sync_default).lower() in ("true", "1", "yes")
         
-        # Lancer la sync en arrière-plan pour ne pas bloquer le démarrage
-        sync_thread = threading.Thread(target=sync_on_startup, daemon=True)
-        sync_thread.start()
-        logger.info("[STARTUP] Synchronisation automatique Bolt démarrée en arrière-plan (données légères uniquement)")
+        logger.info(f"[STARTUP] APP_ENV={app_env}, SKIP_STARTUP_SYNC={skip_startup_sync}")
+        
+        if skip_startup_sync or app_env == "prod" or app_env == "production":
+            logger.info("[STARTUP] Sync automatique au démarrage désactivée (mode production)")
+        else:
+            def sync_on_startup():
+                try:
+                    # Utiliser org_id par défaut
+                    org_id = settings.uber_default_org_id or "default_org"
+                    logger.info(f"[STARTUP SYNC] Déclenchement sync automatique au démarrage pour org_id={org_id}")
+                    
+                    supabase_client = get_supabase_client()
+                    db = SupabaseDB(supabase_client)
+                    
+                    # Synchroniser uniquement les données légères au démarrage (orgs, drivers, vehicles)
+                    # Les données lourdes (orders, state_logs) sont synchronisées via le scheduler quotidien
+                    from app.bolt_integration.services_orgs import sync_orgs
+                    from app.bolt_integration.services_drivers import sync_drivers
+                    from app.bolt_integration.services_vehicles import sync_vehicles
+                    from app.bolt_integration.bolt_client import BoltClient
+                    from app.models.bolt_driver import BoltDriver
+                    from app.models.bolt_vehicle import BoltVehicle
+                    
+                    client = BoltClient()
+                    
+                    # Sync organizations
+                    sync_orgs(db, client, org_id=org_id)
+                    
+                    # Sync drivers
+                    sync_drivers(db, client, org_id=org_id)
+                    driver_count = db.query(BoltDriver).filter(BoltDriver.org_id == org_id).count()
+                    
+                    # Sync vehicles
+                    sync_vehicles(db, client, org_id=org_id)
+                    vehicle_count = db.query(BoltVehicle).filter(BoltVehicle.org_id == org_id).count()
+                    
+                    logger.info(f"[STARTUP SYNC] Résultats: drivers={driver_count}, vehicles={vehicle_count}")
+                    logger.info(f"[STARTUP SYNC] Sync légère terminée. Orders et state_logs seront synchronisés par le scheduler quotidien.")
+                except Exception as e:
+                    logger.error(f"[STARTUP SYNC] Erreur lors de la sync automatique au démarrage: {str(e)}", exc_info=True)
+            
+            # Lancer la sync en arrière-plan pour ne pas bloquer le démarrage
+            sync_thread = threading.Thread(target=sync_on_startup, daemon=True)
+            sync_thread.start()
+            logger.info("[STARTUP] Synchronisation automatique Bolt démarrée en arrière-plan (données légères uniquement)")
         
         # Démarrer le scheduler pour les tâches périodiques
         try:

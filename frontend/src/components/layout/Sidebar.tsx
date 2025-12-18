@@ -10,10 +10,11 @@ type MenuItem = {
   icon?: React.ReactNode;
   path: string;
   children?: Omit<MenuItem, "icon">[];
+  hidden?: boolean; // Pour masquer temporairement des éléments sans les supprimer
 };
 
 const menuItems: MenuItem[] = [
-  { id: "overview", label: "Overview", icon: <FiLayout />, path: "/" },
+  { id: "overview", label: "Vue d'ensemble", icon: <FiLayout />, path: "/" },
   {
     id: "drivers",
     label: "Chauffeurs",
@@ -24,8 +25,8 @@ const menuItems: MenuItem[] = [
       { id: "drivers-data", label: "Data", path: "/drivers/data" },
     ],
   },
-  { id: "vehicles", label: "Véhicules", icon: <FiTruck />, path: "/vehicles" },
-  { id: "orders", label: "Commandes", icon: <FiPackage />, path: "/orders" },
+  { id: "vehicles", label: "Véhicules", icon: <FiTruck />, path: "/vehicles", hidden: true },
+  { id: "orders", label: "Commandes", icon: <FiPackage />, path: "/orders", hidden: true },
   { id: "analytics", label: "Analytics", icon: <FiTrendingUp />, path: "/analytics" },
   { id: "settings", label: "Paramètres", icon: <FiSettings />, path: "/settings" },
 ];
@@ -108,41 +109,43 @@ export function Sidebar({ onLogout }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="sidebar-nav">
-        {menuItems.map((item) => {
-          const hasChildren = item.children && item.children.length > 0;
-          const isOpen = openMenus.has(item.id);
-          const isItemActive = isActive(item.path) || (hasChildren && item.children?.some((child) => isActive(child.path)));
+        {menuItems
+          .filter((item) => !item.hidden) // Filtrer les éléments masqués
+          .map((item) => {
+            const hasChildren = item.children && item.children.length > 0;
+            const isOpen = openMenus.has(item.id);
+            const isItemActive = isActive(item.path) || (hasChildren && item.children?.some((child) => isActive(child.path)));
 
-          return (
-            <div key={item.id}>
-              <div
-                onClick={(e) => handleMenuItemClick(item, e)}
-                className={`sidebar-nav__item ${isItemActive ? "sidebar-nav__item--active" : ""}`}
-              >
-                <span className="sidebar-nav__icon">{item.icon}</span>
-                <span className="sidebar-nav__label">{item.label}</span>
-                {hasChildren && (
-                  <span className="sidebar-nav__chevron">
-                    {isOpen ? <FiChevronDown size={16} /> : <FiChevronRight size={16} />}
-                  </span>
+            return (
+              <div key={item.id}>
+                <div
+                  onClick={(e) => handleMenuItemClick(item, e)}
+                  className={`sidebar-nav__item ${isItemActive ? "sidebar-nav__item--active" : ""}`}
+                >
+                  <span className="sidebar-nav__icon">{item.icon}</span>
+                  <span className="sidebar-nav__label">{item.label}</span>
+                  {hasChildren && (
+                    <span className="sidebar-nav__chevron">
+                      {isOpen ? <FiChevronDown size={16} /> : <FiChevronRight size={16} />}
+                    </span>
+                  )}
+                </div>
+                {hasChildren && isOpen && (
+                  <div className="sidebar-nav__children">
+                    {item.children?.map((child) => (
+                      <div
+                        key={child.id}
+                        onClick={(e) => handleChildClick(child.path, e)}
+                        className={`sidebar-nav__child ${isActive(child.path) ? "sidebar-nav__child--active" : ""}`}
+                      >
+                        <span className="sidebar-nav__child-label">{child.label}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-              {hasChildren && isOpen && (
-                <div className="sidebar-nav__children">
-                  {item.children?.map((child) => (
-                    <div
-                      key={child.id}
-                      onClick={(e) => handleChildClick(child.path, e)}
-                      className={`sidebar-nav__child ${isActive(child.path) ? "sidebar-nav__child--active" : ""}`}
-                    >
-                      <span className="sidebar-nav__child-label">{child.label}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
       </nav>
     </div>
   );

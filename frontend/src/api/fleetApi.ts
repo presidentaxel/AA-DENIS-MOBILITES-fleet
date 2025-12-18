@@ -1,7 +1,28 @@
 import axios from "axios";
 
+// URL de l'API en production
+const PRODUCTION_API_URL = "https://lmdcvtc-fleet-backend-obqs9.ondigitalocean.app";
+
+const getApiBaseURL = () => {
+  // En développement local (localhost), utiliser le port 8000
+  if (typeof window !== "undefined") {
+    const origin = window.location.origin;
+    if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
+      console.log("[API] Development mode - using localhost:8000");
+      return "http://localhost:8000";
+    }
+  }
+  
+  // En production, utiliser l'URL de production
+  console.log("[API] Production mode - using:", PRODUCTION_API_URL);
+  return PRODUCTION_API_URL;
+};
+
+const apiBaseURL = getApiBaseURL();
+console.log("[API] Base URL:", apiBaseURL);
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
+  baseURL: apiBaseURL,
 });
 
 export const login = async (email: string, password: string) => {

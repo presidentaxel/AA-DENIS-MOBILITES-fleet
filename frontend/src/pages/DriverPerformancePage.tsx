@@ -113,6 +113,134 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
     fetchData();
   }, [token, driverId, dateRange.from, dateRange.to]);
 
+  // Clean state logs: handle short disconnections and offline periods
+  const cleanedStateLogs = useMemo(() => {
+    if (!stateLogs || stateLogs.length === 0) return [];
+    
+    const sortedLogs = [...stateLogs].sort((a, b) => a.created - b.created);
+    const cleaned: any[] = [];
+    const SHORT_DISCONNECTION_THRESHOLD = 30 * 60; // 30 minutes in seconds
+    const LONG_OFFLINE_THRESHOLD = 60 * 60; // 1 hour in seconds
+    const skipIndices = new Set<number>(); // Track indices to skip
+    
+    for (let i = 0; i < sortedLogs.length; i++) {
+      if (skipIndices.has(i)) continue;
+      
+      const current = sortedLogs[i];
+      const prev = sortedLogs[i - 1];
+      const next = sortedLogs[i + 1];
+      
+      const currentState = (current.state || "").toLowerCase();
+      const prevState = prev ? (prev.state || "").toLowerCase() : null;
+      const nextState = next ? (next.state || "").toLowerCase() : null;
+      
+      // Case 1: waiting → offline → waiting (short disconnection)
+      // If we have: waiting → offline → waiting within SHORT_DISCONNECTION_THRESHOLD
+      if (
+        prevState === "waiting_orders" &&
+        currentState === "inactive" &&
+        nextState === "waiting_orders" &&
+        (next.created - prev.created) <= SHORT_DISCONNECTION_THRESHOLD
+      ) {
+        // Skip this offline log - treat as continuous waiting
+        skipIndices.add(i);
+        continue;
+      }
+      
+      // Case 2: offline → waiting then nothing, or offline > 1h
+      if (currentState === "waiting_orders" && prevState === "inactive") {
+        const offlineDuration = current.created - prev.created;
+        
+        // If offline was too long (> 1h) or there's no next log after waiting
+        if (offlineDuration > LONG_OFFLINE_THRESHOLD || !next) {
+          // Find the last waiting log before the offline period
+          let lastWaitingLog = null;
+          for (let j = i - 2; j >= 0; j--) {
+            const checkState = (sortedLogs[j].state || "").toLowerCase();
+            if (checkState === "waiting_orders") {
+              lastWaitingLog = sortedLogs[j];
+              break;
+            }
+          }
+          
+          if (lastWaitingLog) {
+            // Check if we already added a log ending at prev.created
+            const alreadyAdded = cleaned.some(
+              log => log.created === prev.created && log.state === lastWaitingLog.state
+            );
+            
+            if (!alreadyAdded) {
+              // Add a log marking the end of the last waiting period (at start of offline)
+              cleaned.push({
+                ...lastWaitingLog,
+                created: prev.created, // End of waiting period = start of offline
+              });
+            }
+          }
+          
+          // Check if prev (offline) was already added
+          const prevAlreadyAdded = cleaned.some(
+            log => log.created === prev.created && log.state === prev.state
+          );
+          
+          if (!prevAlreadyAdded) {
+            cleaned.push(prev);
+          }
+          
+          // If there's no next log, skip the waiting log (it's cancelled by offline)
+          if (!next) {
+            skipIndices.add(i);
+            continue;
+          }
+          // Otherwise, add the waiting log normally (will be added in default case)
+        }
+      }
+      
+      // Case 3: Check if current offline period is too long (before adding it)
+      if (currentState === "inactive" && next) {
+        const offlineDuration = next.created - current.created;
+        if (offlineDuration > LONG_OFFLINE_THRESHOLD) {
+          // Find the last waiting log before this offline period
+          let lastWaitingLog = null;
+          for (let j = i - 1; j >= 0; j--) {
+            const checkState = (sortedLogs[j].state || "").toLowerCase();
+            if (checkState === "waiting_orders") {
+              lastWaitingLog = sortedLogs[j];
+              break;
+            }
+          }
+          
+          if (lastWaitingLog && lastWaitingLog.created < current.created) {
+            // Check if we already added a log ending at current.created
+            const alreadyAdded = cleaned.some(
+              log => log.created === current.created && log.state === lastWaitingLog.state
+            );
+            
+            if (!alreadyAdded) {
+              // Insert a log marking the end of the last waiting period
+              cleaned.push({
+                ...lastWaitingLog,
+                created: current.created, // End of waiting period = start of offline
+              });
+            }
+          }
+        }
+      }
+      
+      // Default: add the log as-is (if not skipped)
+      if (!skipIndices.has(i)) {
+        cleaned.push(current);
+      }
+    }
+    
+    // Remove duplicates (same timestamp and state) and sort again
+    const uniqueCleaned = cleaned.filter((log, idx, self) => 
+      idx === self.findIndex((l) => l.created === log.created && l.state === log.state)
+    );
+    
+    return uniqueCleaned.sort((a, b) => a.created - b.created);
+  }, [stateLogs]);
+
   // Calculate KPIs
   const kpis = useMemo(() => {
     if (!orders.length) {
@@ -129,16 +257,32 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
     const dateRangeStartTs = Math.floor(dateRange.from.getTime() / 1000);
     const dateRangeEndTs = Math.floor(dateRange.to.getTime() / 1000);
     
-    // Filter orders by finished timestamp for earnings (within date range)
-    // Only include orders with status "finished" (completed rides)
-    const finishedOrders = orders.filter((o: any) => {
-      const orderTs = o.order_finished_timestamp;
+    // Filter orders with earnings (within date range)
+    // Include ALL orders that have earnings, not just "finished" ones
+    // This includes: finished rides, cancelled orders with cancellation fees, etc.
+    const ordersWithEarnings = orders.filter((o: any) => {
+      // Use order_finished_timestamp if available, otherwise order_created_timestamp
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
       if (!orderTs) return false;
-      // Check if order status indicates it's finished
-      const isFinished = o.order_status && o.order_status.toLowerCase().includes("finished");
-      if (!isFinished) return false;
+      
+      // Include orders that have any earnings:
+      // - net_earnings > 0 (completed rides)
+      // - cancellation_fee > 0 (cancelled orders with fees)
+      // - ride_price > 0 (any order with a price)
+      const hasEarnings = (o.net_earnings || 0) > 0 || 
+                         (o.cancellation_fee || 0) > 0 || 
+                         (o.ride_price || 0) > 0;
+      
+      if (!hasEarnings) return false;
+      
       // Compare timestamps directly (both in seconds)
       return orderTs >= dateRangeStartTs && orderTs <= dateRangeEndTs;
+    });
+    
+    // Finished orders (for distance and ride count)
+    const finishedOrders = ordersWithEarnings.filter((o: any) => {
+      const isFinished = o.order_status && o.order_status.toLowerCase().includes("finished");
+      return isFinished && o.order_finished_timestamp;
     });
     
     // All orders in date range (for acceptance rate calculation)
@@ -148,18 +292,25 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
       return orderTs >= dateRangeStartTs && orderTs <= dateRangeEndTs;
     });
 
-    // Gross earnings = ride_price + tip (for finished orders only)
-    const grossEarnings = finishedOrders.reduce((sum: number, o: any) => {
+    // Gross earnings = ride_price + tip + cancellation_fee (for all orders with earnings)
+    const grossEarnings = ordersWithEarnings.reduce((sum: number, o: any) => {
       const ridePrice = o.ride_price || 0;
       const tip = o.tip || 0;
-      return sum + ridePrice + tip;
+      const cancellationFee = o.cancellation_fee || 0;
+      return sum + ridePrice + tip + cancellationFee;
     }, 0);
     
-    // Net earnings = net_earnings + tip (for finished orders only)
-    const netEarnings = finishedOrders.reduce((sum: number, o: any) => {
+    // Net earnings = net_earnings + tip + cancellation_fee (for all orders with earnings)
+    // Note: cancellation_fee is already included in net_earnings for cancelled orders,
+    // but we add it explicitly to be sure we don't miss any earnings
+    const netEarnings = ordersWithEarnings.reduce((sum: number, o: any) => {
       const netEarning = o.net_earnings || 0;
       const tip = o.tip || 0;
-      return sum + netEarning + tip;
+      const cancellationFee = o.cancellation_fee || 0;
+      // If net_earnings is 0 but cancellation_fee exists, include it
+      // Otherwise, use net_earnings (which may already include cancellation_fee)
+      const totalNet = netEarning > 0 ? netEarning : cancellationFee;
+      return sum + totalNet + tip;
     }, 0);
     
     // Total ride distance in km
@@ -170,9 +321,9 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
     let totalOnRideSeconds = 0;
     let totalWaitingSeconds = 0;
 
-    if (stateLogs.length > 0) {
+    if (cleanedStateLogs.length > 0) {
       // Filter state logs by date range
-      const filteredLogs = stateLogs.filter(log => 
+      const filteredLogs = cleanedStateLogs.filter(log => 
         log.created >= dateRangeStartTs && log.created <= dateRangeEndTs
       );
       
@@ -222,7 +373,7 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
       onRideHours: totalOnRideSeconds / 3600,
       waitingHours: totalWaitingSeconds / 3600,
     };
-  }, [orders, stateLogs, dateRange]);
+  }, [orders, cleanedStateLogs, dateRange]);
 
   // Calculate activity summary
   const activitySummary = useMemo(() => {
@@ -312,7 +463,7 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
     }
 
     const daysData: { [key: string]: any[] } = {};
-    const sortedLogs = [...stateLogs].sort((a, b) => a.created - b.created);
+    const sortedLogs = [...cleanedStateLogs].sort((a, b) => a.created - b.created);
 
     // Initialize all days with empty arrays
     Object.keys(allDays).forEach((dayKey) => {
@@ -412,9 +563,9 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
       };
     }).sort((a, b) => {
       // Sort by date using the ISO key
-      return a.dayKey.localeCompare(b.dayKey);
+        return a.dayKey.localeCompare(b.dayKey);
     });
-  }, [stateLogs, dateRange]);
+  }, [cleanedStateLogs, dateRange]);
 
   // Prepare weekly performance summary (filtered by date range)
   const weeklySummary = useMemo(() => {
@@ -468,36 +619,54 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
         const dayStartTs = Math.floor(dayStart.getTime() / 1000);
         const dayEndTs = Math.floor(dayEnd.getTime() / 1000);
         
-        // Filter finished orders: must have order_finished_timestamp within this day AND status "finished"
-        const finishedOrdersForEarnings = dayOrders.filter((o: any) => {
-          const finishedTs = o.order_finished_timestamp;
-          if (!finishedTs) return false;
-          const isFinished = o.order_status && o.order_status.toLowerCase().includes("finished");
-          if (!isFinished) return false;
-          return finishedTs >= dayStartTs && finishedTs <= dayEndTs;
+        // Filter orders with earnings for this day
+        // Include ALL orders that have earnings, not just "finished" ones
+        const ordersWithEarningsForDay = dayOrders.filter((o: any) => {
+          // Use order_finished_timestamp if available, otherwise order_created_timestamp
+          const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+          if (!orderTs) return false;
+          
+          // Include orders that have any earnings
+          const hasEarnings = (o.net_earnings || 0) > 0 || 
+                             (o.cancellation_fee || 0) > 0 || 
+                             (o.ride_price || 0) > 0;
+          
+          if (!hasEarnings) return false;
+          
+          // Check if timestamp is within this day
+          return orderTs >= dayStartTs && orderTs <= dayEndTs;
         });
         
-        // Gross earnings = ride_price + tip (for finished orders only, filtered by order_finished_timestamp)
-        const gross = finishedOrdersForEarnings.reduce((sum: number, o: any) => {
+        // Finished orders for distance and ride count (must have finished timestamp and status)
+        const finishedOrdersForDay = ordersWithEarningsForDay.filter((o: any) => {
+          const isFinished = o.order_status && o.order_status.toLowerCase().includes("finished");
+          return isFinished && o.order_finished_timestamp;
+        });
+        
+        // Gross earnings = ride_price + tip + cancellation_fee (for all orders with earnings)
+        const gross = ordersWithEarningsForDay.reduce((sum: number, o: any) => {
           const ridePrice = o.ride_price || 0;
           const tip = o.tip || 0;
-          return sum + ridePrice + tip;
+          const cancellationFee = o.cancellation_fee || 0;
+          return sum + ridePrice + tip + cancellationFee;
         }, 0);
         
-        // Net earnings = net_earnings + tip (for finished orders only, filtered by order_finished_timestamp)
-        const net = finishedOrdersForEarnings.reduce((sum: number, o: any) => {
+        // Net earnings = net_earnings + tip + cancellation_fee (for all orders with earnings)
+        const net = ordersWithEarningsForDay.reduce((sum: number, o: any) => {
           const netEarning = o.net_earnings || 0;
           const tip = o.tip || 0;
-          return sum + netEarning + tip;
+          const cancellationFee = o.cancellation_fee || 0;
+          // If net_earnings is 0 but cancellation_fee exists, include it
+          const totalNet = netEarning > 0 ? netEarning : cancellationFee;
+          return sum + totalNet + tip;
         }, 0);
         // Distance: sum of ride_distance for finished orders only (convert to km)
-        // Use the same finishedOrdersForEarnings that were filtered by order_finished_timestamp
-        const distance = finishedOrdersForEarnings.reduce((sum: number, o: any) => 
+        const distance = finishedOrdersForDay.reduce((sum: number, o: any) => 
           sum + ((o.ride_distance || 0) / 1000), 0
         );
         
         // Finished rides: count orders with status "finished" that were finished on this day
-        const finished = finishedOrdersForEarnings.length;
+        const finished = finishedOrdersForDay.length;
         
         // Accepted orders: orders that were accepted (have order_accepted_timestamp)
         const accepted = dayOrders.filter((o: any) => 
@@ -514,7 +683,7 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
         const dateRangeStartTs = Math.floor(dateRange.from.getTime() / 1000);
         const dateRangeEndTs = Math.floor(dateRange.to.getTime() / 1000);
         
-        const dayLogs = stateLogs.filter((log) => {
+        const dayLogs = cleanedStateLogs.filter((log) => {
           return log.created >= dayStartTs && log.created <= dayEndTs &&
                  log.created >= dateRangeStartTs && log.created <= dateRangeEndTs;
         });
@@ -576,7 +745,7 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
         const dayDate = new Date(dayYear, dayMonth - 1, dayNum);
         return dayDate >= dateRange.from && dayDate <= dateRange.to;
       });
-  }, [orders, stateLogs, dateRange]);
+  }, [orders, cleanedStateLogs, dateRange]);
 
   // Prepare detailed activity timeline
   const detailedActivity = useMemo(() => {
@@ -584,7 +753,7 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
     const MIN_EVENT_DURATION_SECONDS = 10; // Filter events shorter than 10 seconds
 
     // Add state log events as timeline markers
-    const sortedLogs = [...stateLogs].sort((a, b) => a.created - b.created);
+    const sortedLogs = [...cleanedStateLogs].sort((a, b) => a.created - b.created);
     
     if (sortedLogs.length === 0) {
       // If no logs, return empty array (no state logs = no activity to display)
@@ -613,18 +782,6 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
         eventType = "offline";
       }
       
-      // Find associated order if any
-      let associatedOrder = null;
-      if (eventType === "on_ride" || eventType === "waiting") {
-        // Try to find an order that matches this time period
-        associatedOrder = orders.find((order) => {
-          const orderStart = order.order_pickup_timestamp || order.order_accepted_timestamp || order.order_created_timestamp;
-          const orderEnd = order.order_finished_timestamp || order.order_drop_off_timestamp;
-          if (!orderStart) return false;
-          return currentLog.created >= orderStart && (!orderEnd || currentLog.created <= orderEnd);
-        });
-      }
-      
       // Group consecutive events with the same state
       if (!currentGroup || currentGroup.state !== currentLog.state || currentGroup.type !== eventType) {
         // Start a new group
@@ -639,7 +796,7 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
           type: eventType,
           state: currentLog.state,
           stateLogs: [currentLog],
-          order: associatedOrder,
+          order: null, // Will be assigned later
           lat: currentLog.lat,
           lng: currentLog.lng,
         };
@@ -650,16 +807,61 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
         // Keep the most recent lat/lng
         currentGroup.lat = currentLog.lat || currentGroup.lat;
         currentGroup.lng = currentLog.lng || currentGroup.lng;
-        // If we found an order, keep it
-        if (associatedOrder && !currentGroup.order) {
-          currentGroup.order = associatedOrder;
-        }
       }
     }
     
     // Add the last group
     if (currentGroup) {
       groupedEvents.push(currentGroup);
+    }
+
+    // Now assign orders to groups more intelligently to avoid conflicts
+    // This ensures each order is only assigned to the best matching group
+    const assignedOrderRefs = new Set<string>(); // Track which orders have been assigned
+    
+    for (const group of groupedEvents) {
+      if (group.type !== "on_ride") continue;
+      
+      // Find the best matching order for this group
+      // Priority: order that overlaps the most with the group duration
+      let bestOrder = null;
+      let bestOverlap = 0;
+      
+      for (const order of orders) {
+        const orderRef = order.order_reference;
+        // Skip if this order was already assigned to another group
+        if (assignedOrderRefs.has(orderRef)) continue;
+        
+        const orderStart = order.order_pickup_timestamp || order.order_accepted_timestamp || order.order_created_timestamp;
+        const orderEnd = order.order_finished_timestamp || order.order_drop_off_timestamp;
+        
+        if (!orderStart) continue;
+        
+        // Calculate overlap between group and order
+        const groupStart = group.start;
+        const groupEnd = group.end;
+        
+        // Check if there's any overlap
+        const overlapStart = Math.max(groupStart, orderStart);
+        const overlapEnd = orderEnd ? Math.min(groupEnd, orderEnd) : groupEnd;
+        
+        if (overlapStart < overlapEnd) {
+          // There's an overlap - calculate its duration
+          const overlapDuration = overlapEnd - overlapStart;
+          
+          // Prefer orders with longer overlap
+          if (overlapDuration > bestOverlap) {
+            bestOverlap = overlapDuration;
+            bestOrder = order;
+          }
+        }
+      }
+      
+      // Assign the best matching order to this group
+      if (bestOrder) {
+        group.order = bestOrder;
+        assignedOrderRefs.add(bestOrder.order_reference);
+      }
     }
 
     // Filter out events shorter than MIN_EVENT_DURATION_SECONDS (except order events)
@@ -684,7 +886,7 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
       // Keep backward compatibility with stateLog (use first log from group)
       stateLog: event.stateLogs?.[0] || event.stateLog,
     }));
-  }, [orders, stateLogs]);
+  }, [orders, cleanedStateLogs]);
 
   // Filter detailed activity by selected date
   const filteredDetailedActivity = useMemo(() => {
@@ -791,6 +993,16 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
     return "";
   };
 
+  // Construire le nom du driver de manière robuste avec useMemo pour être réactif
+  // IMPORTANT: Les hooks doivent être appelés AVANT tout return conditionnel
+  const driverName = useMemo(() => {
+    if (!driver) return "Unknown Driver";
+    const firstName = (driver.first_name || "").trim();
+    const lastName = (driver.last_name || "").trim();
+    const fullName = [firstName, lastName].filter(Boolean).join(" ");
+    return fullName || driver.name || "Unknown Driver";
+  }, [driver]);
+
   if (loading) {
     return (
       <div className="driver-performance-page">
@@ -807,11 +1019,6 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
     );
   }
 
-  // Construire le nom du driver de manière robuste
-  const firstName = (driver.first_name || "").trim();
-  const lastName = (driver.last_name || "").trim();
-  const fullName = [firstName, lastName].filter(Boolean).join(" ");
-  const driverName = fullName || driver.name || "Unknown Driver";
   const driverScore = 100; // Placeholder
   const driverRating = 4.9; // Placeholder
 
@@ -1352,13 +1559,38 @@ export function DriverPerformancePage({ token, onLogout }: DriverPerformancePage
                                 <span>{event.order.category_name}</span>
                               </div>
                             )}
-                            {event.order.ride_price > 0 && (
-                              <div className="activity-event__detail">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path d="M7.5 16C7.5 16.8284 6.82843 17.5 6 17.5C5.17157 17.5 4.5 16.8284 4.5 16C4.5 15.1716 5.17157 14.5 6 14.5C6.82843 14.5 7.5 15.1716 7.5 16Z" fill="currentColor" />
-                                  <path fillRule="evenodd" clipRule="evenodd" d="M7.00002 3C5.89545 3 5.00002 3.89543 5.00002 5V7H3C1.89543 7 1 7.89543 1 9V19C1 20.1046 1.89543 21 3 21H17C18.1046 21 19 20.1046 19 19V17.0032H21C22.1046 17.0032 23 16.1078 23 15.0032V5C23 3.89543 22.1046 3 21 3H7.00002ZM19 15.0032H21V5H7.00002V7H17C18.1046 7 19 7.89543 19 9V15.0032ZM3 9H17V11H3V9ZM3 13V19H17V13H3Z" fill="currentColor" />
-                                </svg>
-                                <span>€{event.order.ride_price.toFixed(2)}</span>
+                            {/* Revenus détaillés */}
+                            {((event.order.net_earnings || 0) > 0 || (event.order.cancellation_fee || 0) > 0 || (event.order.ride_price || 0) > 0) && (
+                              <div className="activity-event__earnings">
+                                {(event.order.net_earnings || 0) > 0 && (
+                                  <div className="activity-event__earnings-item activity-event__earnings-item--net">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <path d="M7.5 16C7.5 16.8284 6.82843 17.5 6 17.5C5.17157 17.5 4.5 16.8284 4.5 16C4.5 15.1716 5.17157 14.5 6 14.5C6.82843 14.5 7.5 15.1716 7.5 16Z" fill="currentColor" />
+                                      <path fillRule="evenodd" clipRule="evenodd" d="M7.00002 3C5.89545 3 5.00002 3.89543 5.00002 5V7H3C1.89543 7 1 7.89543 1 9V19C1 20.1046 1.89543 21 3 21H17C18.1046 21 19 20.1046 19 19V17.0032H21C22.1046 17.0032 23 16.1078 23 15.0032V5C23 3.89543 22.1046 3 21 3H7.00002ZM19 15.0032H21V5H7.00002V7H17C18.1046 7 19 7.89543 19 9V15.0032ZM3 9H17V11H3V9ZM3 13V19H17V13H3Z" fill="currentColor" />
+                                    </svg>
+                                    <span className="activity-event__earnings-label">Net:</span>
+                                    <span className="activity-event__earnings-value">+€{((event.order.net_earnings || 0) + (event.order.tip || 0)).toFixed(2)}</span>
+                                    {(event.order.tip || 0) > 0 && (
+                                      <span className="activity-event__earnings-tip">(+€{(event.order.tip || 0).toFixed(2)} tip)</span>
+                                    )}
+                                  </div>
+                                )}
+                                {(event.order.cancellation_fee || 0) > 0 && (event.order.net_earnings || 0) === 0 && (
+                                  <div className="activity-event__earnings-item activity-event__earnings-item--cancellation">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <path d="M7.5 16C7.5 16.8284 6.82843 17.5 6 17.5C5.17157 17.5 4.5 16.8284 4.5 16C4.5 15.1716 5.17157 14.5 6 14.5C6.82843 14.5 7.5 15.1716 7.5 16Z" fill="currentColor" />
+                                      <path fillRule="evenodd" clipRule="evenodd" d="M7.00002 3C5.89545 3 5.00002 3.89543 5.00002 5V7H3C1.89543 7 1 7.89543 1 9V19C1 20.1046 1.89543 21 3 21H17C18.1046 21 19 20.1046 19 19V17.0032H21C22.1046 17.0032 23 16.1078 23 15.0032V5C23 3.89543 22.1046 3 21 3H7.00002ZM19 15.0032H21V5H7.00002V7H17C18.1046 7 19 7.89543 19 9V15.0032ZM3 9H17V11H3V9ZM3 13V19H17V13H3Z" fill="currentColor" />
+                                    </svg>
+                                    <span className="activity-event__earnings-label">Frais annulation:</span>
+                                    <span className="activity-event__earnings-value">+€{(event.order.cancellation_fee || 0).toFixed(2)}</span>
+                                  </div>
+                                )}
+                                {(event.order.ride_price || 0) > 0 && (
+                                  <div className="activity-event__earnings-item activity-event__earnings-item--gross">
+                                    <span className="activity-event__earnings-label">Brut:</span>
+                                    <span className="activity-event__earnings-value">€{((event.order.ride_price || 0) + (event.order.tip || 0)).toFixed(2)}</span>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </>

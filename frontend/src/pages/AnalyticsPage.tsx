@@ -288,26 +288,47 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
 
   // Données pour le graphique d'évolution temporelle
   const evolutionData = useMemo(() => {
-    // Grouper les orders par jour
-    const dailyData = new Map<string, { date: Date; earnings: number; connected: number }>();
+    // Trouver la première et dernière date avec des earnings pour adapter l'échelle X
+    const earningsDates: number[] = [];
+    orders.forEach((o: any) => {
+      const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+      if (orderTs && (o.net_earnings || 0) > 0) {
+        earningsDates.push(orderTs);
+      }
+    });
 
-    // Initialiser avec tous les jours des 90 derniers jours
-    for (let i = 90; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateKey = date.toISOString().slice(0, 10);
+    if (earningsDates.length === 0) {
+      // Pas de données d'earnings, retourner un tableau vide
+      return [];
+    }
+
+    const minDate = Math.min(...earningsDates);
+    const maxDate = Math.max(...earningsDates);
+    const startDate = new Date(minDate * 1000);
+    const endDate = new Date(maxDate * 1000);
+
+    // Créer un map pour tous les jours entre la première et dernière date avec earnings
+    const dailyData = new Map<string, { date: Date; earnings: number; connected: number }>();
+    
+    const currentDate = new Date(startDate);
+    currentDate.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    while (currentDate <= end) {
+      const dateKey = currentDate.toISOString().slice(0, 10);
       dailyData.set(dateKey, {
-        date: new Date(date),
+        date: new Date(currentDate),
         earnings: 0,
         connected: 0,
       });
+      currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    // Remplir avec les données réelles
+    // Remplir avec les données d'earnings réelles
     orders.forEach((o: any) => {
-      // Use order_finished_timestamp for earnings calculations
       const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
-      if (orderTs) {
+      if (orderTs && (o.net_earnings || 0) > 0) {
         const orderDate = new Date(orderTs * 1000);
         const dateKey = orderDate.toISOString().slice(0, 10);
 
@@ -318,16 +339,40 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
       }
     });
 
-    // Calculer les connected drivers par jour (simplifié: on prend le total actuel)
-    const connectedCount = drivers.length;
-    dailyData.forEach((data) => {
-      data.connected = connectedCount;
+    // Calculer les connected drivers par jour en fonction de leur première commande
+    // Trouver la première commande de chaque driver
+    const driverFirstOrder = new Map<string, number>();
+    orders.forEach((o: any) => {
+      if (o.driver_uuid) {
+        const orderTs = o.order_finished_timestamp || o.order_created_timestamp;
+        if (orderTs) {
+          const existing = driverFirstOrder.get(o.driver_uuid);
+          if (!existing || orderTs < existing) {
+            driverFirstOrder.set(o.driver_uuid, orderTs);
+          }
+        }
+      }
     });
 
-    return Array.from(dailyData.values()).filter((d) => {
-      const daysAgo = (new Date().getTime() - d.date.getTime()) / (1000 * 60 * 60 * 24);
-      return daysAgo <= 90;
+    // Calculer le nombre de drivers connectés cumulatif par jour
+    // Convertir en array et trier par date pour s'assurer de l'ordre chronologique
+    const sortedData = Array.from(dailyData.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+    
+    sortedData.forEach((dayData) => {
+      const dayTimestamp = Math.floor(dayData.date.getTime() / 1000);
+      
+      // Compter combien de drivers ont eu leur première commande avant ou à cette date
+      let count = 0;
+      driverFirstOrder.forEach((firstOrderTs) => {
+        if (firstOrderTs <= dayTimestamp) {
+          count++;
+        }
+      });
+      
+      dayData.connected = count;
     });
+
+    return sortedData;
   }, [orders, drivers]);
 
   if (loading) {
@@ -351,20 +396,11 @@ export function AnalyticsPage({ token }: AnalyticsPageProps) {
           <div className="analytics-page__tabs">
             <button className="analytics-page__tab analytics-page__tab--active">
               <span className="analytics-page__tab-icon">●</span>
-              Overview
+              Vue d'ensemble
             </button>
-            <button className="analytics-page__tab">My Users</button>
           </div>
         </div>
         <div className="analytics-page__header-right">
-          <label className="analytics-page__toggle">
-            <input
-              type="checkbox"
-              checked={showSampleData}
-              onChange={(e) => setShowSampleData(e.target.checked)}
-            />
-            <span>Show sample data</span>
-          </label>
         </div>
       </div>
 

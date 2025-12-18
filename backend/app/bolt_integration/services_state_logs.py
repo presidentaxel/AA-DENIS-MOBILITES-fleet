@@ -74,78 +74,112 @@ def sync_state_logs(db: SupabaseDB, client: BoltClient, company_id: str | None =
     start_ts = int(start.timestamp())
     end_ts = int(end.timestamp())
     
-    # Construire le payload selon la documentation Bolt
-    payload = {
-        "company_id": int(company_id),
-        "limit": min(limit, 1000) if limit > 0 else 1000,  # Max 1000 selon la doc
-        "offset": offset,
-        "start_ts": start_ts,
-        "end_ts": end_ts,
-    }
+    # Pagination : récupérer tous les state logs
+    batch_limit = min(limit, 1000) if limit > 0 else 1000  # Max 1000 selon la doc
+    current_offset = offset
+    total_saved = 0
+    total_skipped = 0
+    page = 1
     
-    logger.info(f"Sync Bolt state logs: company_id={company_id}, limit={limit}, offset={offset}, start_ts={start_ts}, end_ts={end_ts}")
+    logger.info(f"[SYNC STATE LOGS] Début synchronisation complète des state logs (company_id={company_id}, org_id={org_id}, start_ts={start_ts}, end_ts={end_ts})")
     
-    # Appel POST vers l'endpoint Bolt
-    data = client.post("/fleetIntegration/v1/getFleetStateLogs", payload)
+    # Récupérer les IDs existants pour cette période une seule fois (pour éviter les doublons)
+    existing_logs = db.query(BoltStateLog).filter(
+        BoltStateLog.org_id == org_id,
+        BoltStateLog.created >= start_ts,
+        BoltStateLog.created <= end_ts
+    ).all()
+    existing_ids = {log.id for log in existing_logs}
+    logger.info(f"[SYNC STATE LOGS] {len(existing_ids)} state logs déjà présents pour cette période")
     
-    # La réponse Bolt a la structure: { "code": 0, "message": "...", "data": { "state_logs": [...] } }
-    if data.get("code") != 0:
-        error_msg = data.get("message", "Unknown error")
-        raise RuntimeError(f"Bolt API error: {error_msg}")
-    
-    state_logs_data = data.get("data", {})
-    state_logs = state_logs_data.get("state_logs", [])
-    logger.info(f"Récupéré {len(state_logs)} state logs depuis Bolt")
-    
-    if not state_logs:
-        logger.warning("Aucun state log récupéré depuis Bolt.")
-        return
-    
-    saved_count = 0
-    skipped_count = 0
-    
-    try:
-        # Récupérer les IDs existants pour cette période pour éviter les doublons
-        existing_logs = db.query(BoltStateLog).filter(
-            BoltStateLog.org_id == org_id,
-            BoltStateLog.created >= start_ts,
-            BoltStateLog.created <= end_ts
-        ).all()
-        existing_ids = {log.id for log in existing_logs}
-        logger.info(f"Vérification: {len(existing_ids)} state logs déjà présents pour cette période")
+    while True:
+        # Construire le payload selon la documentation Bolt
+        payload = {
+            "company_id": int(company_id),
+            "limit": batch_limit,
+            "offset": current_offset,
+            "start_ts": start_ts,
+            "end_ts": end_ts,
+        }
         
-        for log in state_logs:
-            # Générer un ID unique: driver_uuid + created timestamp
-            log_id = f"{log.get('driver_uuid')}_{log.get('created')}"
-            
-            # Skip si déjà présent
-            if log_id in existing_ids:
-                skipped_count += 1
-                continue
-            
-            # Extraire active_categories (structure complexe)
-            active_categories = log.get("active_categories")
-            
-            bolt_state_log = BoltStateLog(
-                id=log_id,
-                org_id=org_id,
-                driver_uuid=log.get("driver_uuid"),
-                vehicle_uuid=log.get("vehicle_uuid"),
-                created=log.get("created"),
-                state=log.get("state"),
-                lat=log.get("lat"),
-                lng=log.get("lng"),
-                active_categories=active_categories if active_categories else None,
-            )
-            
-            db.merge(bolt_state_log)
-            saved_count += 1
+        logger.info(f"[SYNC STATE LOGS] Page {page}: offset={current_offset}, limit={batch_limit}")
         
-        db.commit()
-        logger.info(f"{saved_count} state logs sauvegardés, {skipped_count} déjà présents (ignorés) avec org_id={org_id}")
+        # Appel POST vers l'endpoint Bolt
+        data = client.post("/fleetIntegration/v1/getFleetStateLogs", payload)
         
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Erreur lors de la sauvegarde des state logs: {e}", exc_info=True)
-        raise
+        # La réponse Bolt a la structure: { "code": 0, "message": "...", "data": { "state_logs": [...] } }
+        if data.get("code") != 0:
+            error_msg = data.get("message", "Unknown error")
+            raise RuntimeError(f"Bolt API error: {error_msg}")
+        
+        state_logs_data = data.get("data", {})
+        state_logs = state_logs_data.get("state_logs", [])
+        logger.info(f"[SYNC STATE LOGS] Page {page}: Récupéré {len(state_logs)} state logs depuis Bolt")
+        
+        if not state_logs:
+            # Plus de state logs à récupérer
+            logger.info(f"[SYNC STATE LOGS] Aucun state log supplémentaire, fin de la pagination")
+            break
+        
+        # Sauvegarder les state logs de cette page
+        saved_count = 0
+        skipped_count = 0
+        
+        try:
+            for log in state_logs:
+                # Générer un ID unique: driver_uuid + created timestamp
+                log_id = f"{log.get('driver_uuid')}_{log.get('created')}"
+                
+                # Skip si déjà présent
+                if log_id in existing_ids:
+                    skipped_count += 1
+                    continue
+                
+                # Ajouter à la liste des existants pour éviter les doublons dans les pages suivantes
+                existing_ids.add(log_id)
+                
+                # Extraire active_categories (structure complexe)
+                active_categories = log.get("active_categories")
+                
+                bolt_state_log = BoltStateLog(
+                    id=log_id,
+                    org_id=org_id,
+                    driver_uuid=log.get("driver_uuid"),
+                    vehicle_uuid=log.get("vehicle_uuid"),
+                    created=log.get("created"),
+                    state=log.get("state"),
+                    lat=log.get("lat"),
+                    lng=log.get("lng"),
+                    active_categories=active_categories if active_categories else None,
+                )
+                
+                db.merge(bolt_state_log)
+                saved_count += 1
+            
+            # Commit après chaque page pour éviter de perdre les données en cas d'erreur
+            db.commit()
+            total_saved += saved_count
+            total_skipped += skipped_count
+            logger.info(f"[SYNC STATE LOGS] Page {page}: {saved_count} state logs sauvegardés, {skipped_count} ignorés (total: {total_saved} sauvegardés, {total_skipped} ignorés)")
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[SYNC STATE LOGS] Erreur lors de la sauvegarde de la page {page}: {e}", exc_info=True)
+            raise
+        
+        # Si on a récupéré moins de state logs que le limit, c'est qu'on a atteint la fin
+        if len(state_logs) < batch_limit:
+            logger.info(f"[SYNC STATE LOGS] Dernière page atteinte ({len(state_logs)} < {batch_limit})")
+            break
+        
+        # Passer à la page suivante
+        current_offset += batch_limit
+        page += 1
+        
+        # Sécurité : éviter les boucles infinies (max 1000 pages = 1M logs max)
+        if page > 1000:
+            logger.warning(f"[SYNC STATE LOGS] Limite de sécurité atteinte (1000 pages), arrêt de la synchronisation")
+            break
+    
+    logger.info(f"[SYNC STATE LOGS] Synchronisation terminée: {total_saved} state logs sauvegardés, {total_skipped} déjà présents (ignorés) avec org_id={org_id}")
 

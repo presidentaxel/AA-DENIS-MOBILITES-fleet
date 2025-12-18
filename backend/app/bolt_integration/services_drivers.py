@@ -13,6 +13,7 @@ def sync_drivers(db: SupabaseDB, client: BoltClient, company_id: str | None = No
     """
     Synchronise les chauffeurs Bolt depuis l'API.
     Utilise POST /fleetIntegration/v1/getDrivers selon la documentation Bolt.
+    Gère la pagination automatiquement pour récupérer TOUS les drivers.
     """
     from app.core.config import get_settings
     from app.core import logging as app_logging
@@ -53,85 +54,94 @@ def sync_drivers(db: SupabaseDB, client: BoltClient, company_id: str | None = No
     # 30 jours = 30 * 24 * 60 * 60 secondes = 2,592,000 secondes
     thirty_days_ago = now - (30 * 24 * 60 * 60)
     
-    payload = {
-        "offset": offset,
-        "limit": min(limit, 1000) if limit > 0 else 1000,  # Max 1000 selon la doc, défaut à 1000
-        "company_id": int(company_id),
-        "start_ts": thirty_days_ago,  # Timestamp de début (30 jours dans le passé, plage max autorisée)
-        "end_ts": now,  # Timestamp de fin (maintenant)
-        # portal_status omis car optionnel
-        # search omis car optionnel et pas de recherche à effectuer
-    }
+    # Pagination : récupérer tous les drivers
+    batch_limit = min(limit, 1000) if limit > 0 else 1000  # Max 1000 selon la doc
+    current_offset = offset
+    total_saved = 0
+    page = 1
     
-    logger.info(f"Sync Bolt drivers: company_id={company_id}, limit={limit}, offset={offset}")
-    logger.debug(f"Payload: {payload}")
+    logger.info(f"[SYNC DRIVERS] Début synchronisation complète des drivers (company_id={company_id}, org_id={org_id})")
     
-    # Logs supplémentaires pour debug
-    print(f"[SYNC DRIVERS] ===== SYNC DRIVERS CALL =====")
-    print(f"[SYNC DRIVERS] company_id: {company_id} (type: {type(company_id)})")
-    print(f"[SYNC DRIVERS] limit: {limit}, offset: {offset}")
-    print(f"[SYNC DRIVERS] payload: {payload}")
-    print(f"[SYNC DRIVERS] endpoint: /fleetIntegration/v1/getDrivers")
-    print(f"[SYNC DRIVERS] ============================")
-    
-    # Appel POST vers l'endpoint Bolt
-    data = client.post("/fleetIntegration/v1/getDrivers", payload)
-    
-    # La réponse Bolt a la structure: { "code": 0, "message": "...", "data": { "drivers": [...] } }
-    if data.get("code") != 0:
-        error_msg = data.get("message", "Unknown error")
-        raise RuntimeError(f"Bolt API error: {error_msg}")
-    
-    drivers = data.get("data", {}).get("drivers", [])
-    logger.info(f"Récupéré {len(drivers)} drivers depuis Bolt")
-    
-    if not drivers:
-        logger.warning("Aucun driver récupéré depuis Bolt. Vérifie que company_id est correct.")
-        return
-    
-    saved_count = 0
-    
-    try:
-        for d in drivers:
-            # Mapper les champs Bolt vers notre modèle
-            driver_uuid = d.get("driver_uuid") or d.get("id")
-            if not driver_uuid:
-                logger.warning(f"Driver sans UUID ignoré: {d}")
-                continue
+    while True:
+        payload = {
+            "offset": current_offset,
+            "limit": batch_limit,
+            "company_id": int(company_id),
+            "start_ts": thirty_days_ago,
+            "end_ts": now,
+        }
+        
+        logger.info(f"[SYNC DRIVERS] Page {page}: offset={current_offset}, limit={batch_limit}")
+        
+        # Appel POST vers l'endpoint Bolt
+        data = client.post("/fleetIntegration/v1/getDrivers", payload)
+        
+        # La réponse Bolt a la structure: { "code": 0, "message": "...", "data": { "drivers": [...] } }
+        if data.get("code") != 0:
+            error_msg = data.get("message", "Unknown error")
+            raise RuntimeError(f"Bolt API error: {error_msg}")
+        
+        drivers = data.get("data", {}).get("drivers", [])
+        logger.info(f"[SYNC DRIVERS] Page {page}: Récupéré {len(drivers)} drivers depuis Bolt")
+        
+        if not drivers:
+            # Plus de drivers à récupérer
+            logger.info(f"[SYNC DRIVERS] Aucun driver supplémentaire, fin de la pagination")
+            break
+        
+        # Sauvegarder les drivers de cette page
+        saved_count = 0
+        try:
+            for d in drivers:
+                # Mapper les champs Bolt vers notre modèle
+                driver_uuid = d.get("driver_uuid") or d.get("id")
+                if not driver_uuid:
+                    logger.warning(f"Driver sans UUID ignoré: {d}")
+                    continue
+                    
+                driver = BoltDriver(
+                    id=driver_uuid,
+                    org_id=org_id,
+                    first_name=d.get("first_name", ""),
+                    last_name=d.get("last_name", ""),
+                    email=d.get("email"),
+                    phone=d.get("phone"),
+                    active=d.get("state") == "active" if d.get("state") else True,
+                )
                 
-            driver = BoltDriver(
-                id=driver_uuid,
-                org_id=org_id,
-                first_name=d.get("first_name", ""),
-                last_name=d.get("last_name", ""),
-                email=d.get("email"),
-                phone=d.get("phone"),
-                active=d.get("state") == "active" if d.get("state") else True,
-            )
+                db.merge(driver)
+                saved_count += 1
             
-            db.merge(driver)
-            saved_count += 1
-        
-        # Flush pour envoyer les changements à la DB sans commit
-        db.flush()
-        logger.info(f"{saved_count} drivers flushés (prêts à être commités)")
-        
-        # Commit explicite avec gestion d'erreur
-        db.commit()
-        logger.info(f"{saved_count} drivers commités avec org_id={org_id}")
-        
-        # Vérification après commit avec une nouvelle requête pour forcer la lecture depuis la DB
-        db.expire_all()  # Expirer tous les objets de la session pour forcer une nouvelle lecture
-        verify_count = db.query(BoltDriver).filter(BoltDriver.org_id == org_id).count()
-        logger.info(f"Vérification après commit: {verify_count} drivers trouvés dans la DB avec org_id={org_id}")
-        
-        if verify_count == 0 and saved_count > 0:
-            logger.error(f"ATTENTION: {saved_count} drivers devraient être sauvegardés mais aucun trouvé dans la DB!")
-            logger.error(f"Vérifie que la connexion DB est correcte et que org_id={org_id} correspond à tes données")
-            logger.error(f"URL DB (masquée): {config.database_url.replace(config.db_password, '***')}")
+            # Commit après chaque page pour éviter de perdre les données en cas d'erreur
+            db.commit()
+            total_saved += saved_count
+            logger.info(f"[SYNC DRIVERS] Page {page}: {saved_count} drivers sauvegardés (total: {total_saved})")
             
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Erreur lors de la sauvegarde des drivers: {e}", exc_info=True)
-        raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[SYNC DRIVERS] Erreur lors de la sauvegarde de la page {page}: {e}", exc_info=True)
+            raise
+        
+        # Si on a récupéré moins de drivers que le limit, c'est qu'on a atteint la fin
+        if len(drivers) < batch_limit:
+            logger.info(f"[SYNC DRIVERS] Dernière page atteinte ({len(drivers)} < {batch_limit})")
+            break
+        
+        # Passer à la page suivante
+        current_offset += batch_limit
+        page += 1
+        
+        # Sécurité : éviter les boucles infinies (max 1000 pages = 1M drivers max)
+        if page > 1000:
+            logger.warning(f"[SYNC DRIVERS] Limite de sécurité atteinte (1000 pages), arrêt de la synchronisation")
+            break
+    
+    # Vérification finale
+    db.expire_all()
+    verify_count = db.query(BoltDriver).filter(BoltDriver.org_id == org_id).count()
+    logger.info(f"[SYNC DRIVERS] Synchronisation terminée: {total_saved} drivers sauvegardés, {verify_count} drivers dans la DB avec org_id={org_id}")
+    
+    if verify_count == 0 and total_saved > 0:
+        logger.error(f"[SYNC DRIVERS] ATTENTION: {total_saved} drivers devraient être sauvegardés mais aucun trouvé dans la DB!")
+        logger.error(f"[SYNC DRIVERS] Vérifie que la connexion DB est correcte et que org_id={org_id} correspond à tes données")
 

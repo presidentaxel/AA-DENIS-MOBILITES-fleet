@@ -79,17 +79,23 @@ class Settings(BaseSettings):
     bolt_auth_url: AnyUrl = Field(default="https://oidc.bolt.eu/token", alias="BOLT_AUTH_URL")
     bolt_default_fleet_id: Optional[str] = Field(default=None, alias="BOLT_DEFAULT_FLEET_ID")
 
+    heetch_login: Optional[str] = Field(default=None, alias="HEETCH_LOGIN", description="Numéro de téléphone pour la connexion Heetch")
+    heetch_password: Optional[str] = Field(default=None, alias="HEETCH_PASSWORD")
+    heetch_2fa_code: Optional[str] = Field(default=None, alias="HEETCH_2FA_CODE")
+
     @property
     def database_url(self) -> str:
         """Construit l'URL de connexion à la base de données."""
         # Si une URL complète est fournie, l'utiliser directement
         if self.database_url_override:
-            # S'assurer qu'elle utilise psycopg2
+            # S'assurer qu'elle utilise psycopg (psycopg3)
             url = self.database_url_override
             if url.startswith("postgresql://"):
-                url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
-            elif not url.startswith("postgresql+psycopg2://"):
-                url = f"postgresql+psycopg2://{url}"
+                url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+            elif url.startswith("postgresql+psycopg2://"):
+                url = url.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+            elif not url.startswith("postgresql+psycopg://"):
+                url = f"postgresql+psycopg://{url}"
             # Ajouter sslmode=require si pas déjà présent (nécessaire pour Supabase)
             if "sslmode=" not in url:
                 separator = "&" if "?" in url else "?"
@@ -106,7 +112,7 @@ class Settings(BaseSettings):
         database = quote_plus(self.db_name) if self.db_name else "postgres"
         # Ajouter sslmode=require pour Supabase (nécessaire pour les connexions externes)
         ssl_param = "?sslmode=require"
-        return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}{ssl_param}"
+        return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{database}{ssl_param}"
 
 
 @lru_cache

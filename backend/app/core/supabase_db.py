@@ -72,6 +72,15 @@ class SupabaseDB:
         """Expire tous les objets (pour compatibilité SQLAlchemy)."""
         pass
     
+    def __enter__(self):
+        """Support du context manager (with statement)."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Support du context manager (with statement)."""
+        self.close()
+        return False  # Ne pas supprimer l'exception si elle existe
+    
     def _instance_to_dict(self, instance: Any) -> Dict[str, Any]:
         """Convertit une instance de modèle en dictionnaire."""
         data = {}
@@ -155,6 +164,13 @@ class SupabaseQuery:
                     # Convertir datetime en ISO string pour Supabase
                     if isinstance(value, datetime):
                         value = value.isoformat()
+                    # Pour les entiers (timestamps), s'assurer qu'ils restent des entiers
+                    # Supabase peut comparer les bigint correctement avec des entiers Python
+                    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                        # Garder les entiers comme entiers pour les comparaisons numériques
+                        if isinstance(value, float) and value.is_integer():
+                            value = int(value)
+                        # Sinon, garder tel quel (int reste int, float reste float)
                     
                     # Appliquer l'opérateur
                     if op == 'eq' or str(op) == '==' or str(op).endswith('.eq'):

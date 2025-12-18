@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir --upgrade pip
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Créer la structure de dossiers (le code sera monté en volume)
+RUN mkdir -p app scripts
+
+# Copier seulement les fichiers de configuration nécessaires
+COPY alembic.ini .
+COPY alembic ./alembic
+
+ENV PYTHONUNBUFFERED=1
+
+# Utiliser --reload pour le hot-reload en développement
+# --reload-dir spécifie les dossiers à surveiller
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
+
