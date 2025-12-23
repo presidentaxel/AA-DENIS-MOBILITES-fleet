@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     heetch_login: Optional[str] = Field(default=None, alias="HEETCH_LOGIN", description="Numéro de téléphone pour la connexion Heetch")
     heetch_password: Optional[str] = Field(default=None, alias="HEETCH_PASSWORD")
     heetch_2fa_code: Optional[str] = Field(default=None, alias="HEETCH_2FA_CODE")
+    heetch_headless: bool = Field(default=False, alias="HEETCH_HEADLESS", description="Mode headless pour Playwright (False = fenêtre visible)")
 
     @property
     def database_url(self) -> str:

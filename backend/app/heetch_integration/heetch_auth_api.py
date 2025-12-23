@@ -57,9 +57,74 @@ class HeetchAuthAPI:
             with httpx.Client(timeout=30.0) as client:
                 resp = client.get(f"{self.auth_base_url}/session", headers=headers)
                 resp.raise_for_status()
-                return resp.json()
+                data = resp.json()
+                
+                # Extraire le token depuis les headers de réponse si disponible
+                auth_header = resp.headers.get("authorization")
+                if auth_header and not self._token:
+                    # Le token peut être dans le header Authorization de la réponse
+                    token = auth_header.replace("Token ", "").replace("Bearer ", "")
+                    if token:
+                        self._token = token
+                        logger.info(f"[HEETCH AUTH] Token extrait depuis les headers de réponse")
+                
+                # Extraire access_token depuis la réponse si présent
+                if "access_token" in data and not self._token:
+                    self._token = data["access_token"]
+                    logger.info(f"[HEETCH AUTH] Access token extrait depuis la réponse")
+                
+                return data
         except Exception as e:
             logger.error(f"[HEETCH AUTH] Erreur lors de la vérification de session: {e}", exc_info=True)
+            raise
+    
+    def create_session(self, phone_number: str, recaptcha_token: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Crée une nouvelle session web avec le numéro de téléphone.
+        
+        Args:
+            phone_number: Numéro de téléphone
+            recaptcha_token: Token reCAPTCHA (optionnel, peut être extrait depuis Playwright)
+        
+        Returns:
+            Dict avec access_token et état de la session
+        """
+        headers = {
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+            "content-type": "application/json",
+            "device-id": self._get_device_id(),
+            "origin": "https://auth.heetch.com",
+            "referer": "https://auth.heetch.com/",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+        }
+        
+        payload = {
+            "client": "web",
+            "phone_number": phone_number,
+            "action": "login",
+            "challenge": "score"
+        }
+        
+        if recaptcha_token:
+            payload["recaptcha_token"] = recaptcha_token
+        
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(f"{self.auth_base_url}/web/session", json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                
+                # Extraire l'access_token depuis la réponse
+                if "access_token" in data:
+                    self._token = data["access_token"]
+                    # Les tokens expirent généralement après 24h
+                    self._token_expires_at = time.time() + (24 * 60 * 60)
+                    logger.info(f"[HEETCH AUTH] Session créée avec access_token: {self._token[:20]}...")
+                
+                return data
+        except Exception as e:
+            logger.error(f"[HEETCH AUTH] Erreur lors de la création de session: {e}", exc_info=True)
             raise
     
     def authenticate(self, phone: str, password: str) -> Dict[str, Any]:

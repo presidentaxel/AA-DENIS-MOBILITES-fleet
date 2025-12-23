@@ -83,6 +83,7 @@ class SupabaseDB:
     
     def _instance_to_dict(self, instance: Any) -> Dict[str, Any]:
         """Convertit une instance de modèle en dictionnaire."""
+        import uuid as uuid_module
         data = {}
         for column in instance.__table__.columns:
             value = getattr(instance, column.name, None)
@@ -92,6 +93,9 @@ class SupabaseDB:
                 value = value.isoformat()
             elif hasattr(value, 'isoformat'):  # Pour date aussi
                 value = value.isoformat()
+            # Convertir les UUID en string pour JSON
+            elif isinstance(value, uuid_module.UUID):
+                value = str(value)
             
             # Convertir les valeurs None - Supabase accepte None
             # Mais pour les champs required, on ne devrait pas avoir None
@@ -284,6 +288,7 @@ class SupabaseQuery:
     
     def _dict_to_instance(self, data: Dict[str, Any]) -> Any:
         """Convertit un dictionnaire en instance de modèle."""
+        import uuid as uuid_module
         instance = self.model_class()
         # Si le modèle a __table__, utiliser les colonnes de la table
         if hasattr(instance, '__table__'):
@@ -304,6 +309,16 @@ class SupabaseQuery:
                                         try:
                                             value = datetime.fromisoformat(value.replace('Z', '+00:00'))
                                         except:
+                                            pass
+                                
+                                # Gérer les UUID (Supabase retourne des strings)
+                                elif (python_type == uuid_module.UUID or 
+                                      (hasattr(column.type, 'as_uuid') and column.type.as_uuid) or
+                                      str(column.type).startswith('UUID')):
+                                    if isinstance(value, str):
+                                        try:
+                                            value = uuid_module.UUID(value)
+                                        except (ValueError, TypeError):
                                             pass
                                 
                                 # Convertir en type Python si nécessaire

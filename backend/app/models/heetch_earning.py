@@ -15,6 +15,8 @@ class HeetchEarning(Base):
     driver_id = Column(String, index=True, nullable=False)  # email du driver
     date = Column(Date, nullable=False, index=True)  # Date de début de la période
     period = Column(String, nullable=False, index=True)  # weekly, monthly, etc.
+    start_date = Column(Date, nullable=True, index=True)  # Date de début réelle de la période (depuis summary)
+    end_date = Column(Date, nullable=True, index=True)  # Date de fin réelle de la période (depuis summary)
     
     # Earnings détaillés
     gross_earnings = Column(Float, default=0)
@@ -29,5 +31,8 @@ class HeetchEarning(Base):
     terminated_rides = Column(Integer, default=0)  # Nombre de courses terminées
     cancelled_rides = Column(Integer, default=0)  # Nombre de courses annulées
     cash_discount = Column(Float, default=0)
+    unpaid_cash_rides_refunds = Column(Float, nullable=True)  # Peut être null
+    debt = Column(Float, nullable=True)  # Peut être null
+    money_transfer_amount = Column(Float, nullable=True)  # Peut être null
     currency = Column(String, default="EUR")
 
