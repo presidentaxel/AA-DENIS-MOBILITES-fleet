@@ -55,6 +55,59 @@ class HeetchClient:
         """Génère une clé de session basée sur org_id + phone_number."""
         phone_to_use = phone or self._phone_number or "unknown"
         return f"{self.org_id}:{phone_to_use}"
+    
+    def _normalize_cookies_for_playwright(self, cookies: list) -> list:
+        """
+        Normalise les cookies pour qu'ils soient compatibles avec Playwright storage_state.
+        Assure que tous les cookies ont les champs requis et au bon format.
+        """
+        normalized = []
+        for cookie in cookies:
+            if not isinstance(cookie, dict):
+                logger.warning(f"[HEETCH] Cookie ignoré car ce n'est pas un dict: {type(cookie)}")
+                continue
+            
+            # Créer un cookie normalisé avec les champs requis
+            normalized_cookie = {
+                "name": str(cookie.get("name", "")),
+                "value": str(cookie.get("value", "")),
+                "domain": str(cookie.get("domain", "")),
+                "path": str(cookie.get("path", "/")),
+            }
+            
+            # Ajouter expires si présent (doit être un timestamp Unix en secondes)
+            if "expires" in cookie:
+                expires = cookie["expires"]
+                if isinstance(expires, (int, float)):
+                    normalized_cookie["expires"] = int(expires)
+                elif isinstance(expires, str):
+                    try:
+                        # Si c'est une chaîne, essayer de la convertir en timestamp
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(expires.replace('Z', '+00:00'))
+                        normalized_cookie["expires"] = int(dt.timestamp())
+                    except:
+                        logger.debug(f"[HEETCH] Impossible de convertir expires '{expires}' pour cookie {normalized_cookie.get('name')}")
+            
+            # Ajouter httpOnly si présent
+            if "httpOnly" in cookie:
+                normalized_cookie["httpOnly"] = bool(cookie["httpOnly"])
+            
+            # Ajouter secure si présent
+            if "secure" in cookie:
+                normalized_cookie["secure"] = bool(cookie["secure"])
+            
+            # Ajouter sameSite si présent (doit être "Strict", "Lax", ou "None")
+            if "sameSite" in cookie and cookie["sameSite"]:
+                same_site = cookie["sameSite"]
+                if same_site in ["Strict", "Lax", "None"]:
+                    normalized_cookie["sameSite"] = same_site
+                elif same_site.lower() in ["strict", "lax", "none"]:
+                    normalized_cookie["sameSite"] = same_site.capitalize() if same_site.lower() != "none" else "None"
+            
+            normalized.append(normalized_cookie)
+        
+        return normalized
         
     def _close_playwright(self):
         """Ferme Playwright et libère les ressources."""
@@ -82,11 +135,45 @@ class HeetchClient:
             ).first()
             
             if session_cookies and session_cookies.expires_at > datetime.utcnow():
-                self._cookies = session_cookies.cookies
+                cookies_raw = session_cookies.cookies
+                logger.debug(f"[HEETCH] Cookies bruts chargés de la DB, type: {type(cookies_raw)}")
+                
+                # Gérer différents formats de désérialisation JSONB
+                if isinstance(cookies_raw, str):
+                    # Si c'est une chaîne JSON, la désérialiser
+                    try:
+                        import json
+                        cookies_raw = json.loads(cookies_raw)
+                        logger.debug("[HEETCH] Cookies désérialisés depuis chaîne JSON")
+                    except Exception as e:
+                        logger.error(f"[HEETCH] Erreur lors de la désérialisation JSON: {e}")
+                        return False
+                
+                self._cookies = cookies_raw
+                
+                # Vérifier le type des cookies (devrait être une liste)
+                if not isinstance(self._cookies, list):
+                    logger.warning(f"[HEETCH] Les cookies chargés ne sont pas une liste, type: {type(self._cookies)}, tentative de conversion...")
+                    # Si c'est un dict avec une clé 'cookies', extraire la liste
+                    if isinstance(self._cookies, dict) and 'cookies' in self._cookies:
+                        self._cookies = self._cookies['cookies']
+                        logger.info("[HEETCH] Cookies extraits depuis dict avec clé 'cookies'")
+                    elif isinstance(self._cookies, dict):
+                        # Si c'est directement un dict, convertir en liste
+                        self._cookies = [self._cookies] if self._cookies else []
+                        logger.info("[HEETCH] Cookie unique converti en liste")
+                    else:
+                        logger.error(f"[HEETCH] Format de cookies inattendu et non convertible: {type(self._cookies)}")
+                        return False
+                
                 # Convertir expires_at en timestamp
                 expires_timestamp = session_cookies.expires_at.timestamp()
                 self._cookies_expires_at = expires_timestamp
                 logger.info(f"[HEETCH] {len(self._cookies) if self._cookies else 0} cookies chargés depuis la DB pour {phone_number} (expire: {session_cookies.expires_at})")
+                # Log du premier cookie pour vérifier le format
+                if self._cookies and len(self._cookies) > 0:
+                    first_cookie = self._cookies[0]
+                    logger.debug(f"[HEETCH] Exemple de cookie chargé: name={first_cookie.get('name')}, domain={first_cookie.get('domain')}, keys={list(first_cookie.keys())}")
                 return True
             elif session_cookies:
                 logger.info(f"[HEETCH] Cookies expirés dans la DB pour {phone_number} (expiré le: {session_cookies.expires_at})")
@@ -143,7 +230,15 @@ class HeetchClient:
                 db.merge(session_cookies)
             
             db.commit()
-            logger.info(f"[HEETCH] {len(self._cookies)} cookies sauvegardés dans la DB pour {phone_number}")
+            # Log des domaines de cookies sauvegardés pour debugging
+            cookie_domains = {}
+            for cookie in self._cookies:
+                domain = cookie.get('domain', 'N/A')
+                if domain not in cookie_domains:
+                    cookie_domains[domain] = 0
+                cookie_domains[domain] += 1
+            domains_summary = ", ".join([f"{domain}: {count}" for domain, count in cookie_domains.items()])
+            logger.info(f"[HEETCH] {len(self._cookies)} cookies sauvegardés dans la DB pour {phone_number} (domaines: {domains_summary})")
         except Exception as e:
             logger.error(f"[HEETCH] Erreur lors de la sauvegarde des cookies dans la DB: {e}", exc_info=True)
             # Ne pas lever d'exception, la sauvegarde des cookies n'est pas critique
@@ -553,8 +648,26 @@ class HeetchClient:
                 # Restaurer les cookies depuis la DB (chargés plus haut) pour éviter de redemander le numéro
                 if self._cookies:
                     logger.info(f"[HEETCH] Injection de {len(self._cookies)} cookies dans le contexte Playwright")
+                    # Normaliser les cookies pour Playwright
+                    normalized_cookies = self._normalize_cookies_for_playwright(self._cookies)
+                    logger.info(f"[HEETCH] {len(normalized_cookies)} cookies normalisés pour injection")
+                    
+                    # Log des domaines de cookies injectés pour debugging
+                    cookie_domains = {}
+                    for cookie in normalized_cookies:
+                        domain = cookie.get('domain', 'N/A')
+                        if domain not in cookie_domains:
+                            cookie_domains[domain] = 0
+                        cookie_domains[domain] += 1
+                    domains_summary = ", ".join([f"{domain}: {count}" for domain, count in cookie_domains.items()])
+                    logger.info(f"[HEETCH] Cookies injectés par domaine: {domains_summary}")
+                    # Log des cookies d'authentification pour debugging
+                    auth_cookies = [c for c in normalized_cookies if c.get('name') in ['heetch_auth_token', 'heetch_driver_session']]
+                    if auth_cookies:
+                        for cookie in auth_cookies:
+                            logger.info(f"[HEETCH] Cookie d'auth injecté: {cookie.get('name')} (domaine: {cookie.get('domain', 'N/A')})")
                     context_options["storage_state"] = {
-                        "cookies": self._cookies
+                        "cookies": normalized_cookies
                     }
                 
                 context = await browser.new_context(**context_options)
@@ -608,24 +721,145 @@ class HeetchClient:
             logger.info(f"[HEETCH] Navigation vers {self.auth_url}...")
             await page.goto(self.auth_url, wait_until="load", timeout=60000)
             logger.info("[HEETCH] Page chargée, vérification de l'état...")
-            # Pause pour permettre à la page de se charger complètement
+            # Attendre que les redirections potentielles soient terminées
             await page.wait_for_timeout(3000)
+            # Attendre que la navigation soit stable (pas de redirections en cours)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except:
+                pass  # Si networkidle timeout, continuer quand même
+            
+            # Vérifier si les cookies sont bien présents dans le contexte après navigation
+            cookies_after_nav = await context.cookies()
+            logger.info(f"[HEETCH] Cookies présents dans le contexte après navigation: {len(cookies_after_nav)} cookies")
+            if cookies_after_nav:
+                cookie_domains_after = {}
+                for cookie in cookies_after_nav:
+                    domain = cookie.get('domain', 'N/A')
+                    if domain not in cookie_domains_after:
+                        cookie_domains_after[domain] = 0
+                    cookie_domains_after[domain] += 1
+                domains_summary_after = ", ".join([f"{domain}: {count}" for domain, count in cookie_domains_after.items()])
+                logger.info(f"[HEETCH] Cookies après navigation par domaine: {domains_summary_after}")
             
             # Vérifier si on est déjà connecté (grâce aux cookies restaurés depuis la DB)
             current_url = page.url
             logger.info(f"[HEETCH] URL après chargement: {current_url}")
             
-            # Si on n'est pas sur une page de login/auth, c'est qu'on est déjà connecté
-            if "/login" not in current_url.lower() and ("auth.heetch.com" not in current_url or "/dashboard" in current_url or "/earnings" in current_url or "driver.heetch.com" in current_url):
-                logger.info("[HEETCH] ✅ Déjà connecté grâce aux cookies restaurés depuis la DB (bypass du numéro et SMS)")
-                # Récupérer les nouveaux cookies (peut-être rafraîchis)
+            # On considère la session comme déjà connectée UNIQUEMENT si :
+            # 1. L'hôte est driver.heetch.com (pas auth.heetch.com)
+            # 2. L'URL ne contient pas /login
+            # 3. ET on a vraiment des cookies valides (test avec une requête API légère)
+            from urllib.parse import urlparse
+            parsed_url = urlparse(current_url)
+            host = parsed_url.netloc or ""
+            is_driver_host = "driver.heetch.com" in host
+            is_login_path = "/login" in current_url.lower()
+            is_auth_host = "auth.heetch.com" in host
+            
+            # Si on est sur auth.heetch.com/login, vérifier quel type de formulaire apparaît
+            if is_auth_host and is_login_path:
+                # Attendre un peu pour que le formulaire se charge
+                await page.wait_for_timeout(2000)
+                
+                # Vérifier si on voit un champ mot de passe (numéro mémorisé) ou un champ téléphone (connexion complète nécessaire)
+                try:
+                    password_input = await page.query_selector('input[type="password"]')
+                    phone_input = await page.query_selector('input.f-FormEl, input[type="tel"], input[name="phone"], input[placeholder*="téléphone" i], input[placeholder*="phone" i]')
+                    
+                    if password_input and await password_input.is_visible() and (not phone_input or not await phone_input.is_visible()):
+                        # Champ mot de passe présent mais pas de champ téléphone = numéro mémorisé, cookies de "mémorisation" valides
+                        logger.info("[HEETCH] ✅ Numéro déjà mémorisé (champ mot de passe détecté), les cookies de mémorisation sont valides")
+                        logger.info("[HEETCH] Pas besoin de SMS, seule la connexion avec mot de passe est nécessaire")
+                        # NE PAS marquer les cookies comme invalides car ils permettent de bypasser le SMS
+                        # Les cookies seront mis à jour après complete_login avec le mot de passe
+                        # Sauvegarder les cookies actuels (qui permettent de bypasser le SMS) pour les réutiliser
+                        cookies = await context.cookies()
+                        self._cookies = cookies  # Garder les cookies en mémoire pour complete_login
+                        logger.info(f"[HEETCH] {len(cookies)} cookies conservés (permettent de bypasser le SMS)")
+                        return {"status": "phone_remembered", "message": "Numéro déjà mémorisé grâce aux cookies, mot de passe requis (pas de SMS nécessaire)"}
+                    else:
+                        # Champ téléphone présent = même la mémorisation ne fonctionne plus, connexion complète nécessaire
+                        logger.warning("[HEETCH] Champ téléphone détecté, les cookies de mémorisation sont également invalides")
+                        if self._cookies:
+                            # Marquer les cookies comme invalides dans la DB car même la mémorisation ne fonctionne plus
+                            try:
+                                from app.core.supabase_db import SupabaseDB
+                                from app.models.heetch_session_cookies import HeetchSessionCookies
+                                from datetime import datetime
+                                db = SupabaseDB()
+                                session_cookies = db.query(HeetchSessionCookies).filter(
+                                    HeetchSessionCookies.org_id == self.org_id,
+                                    HeetchSessionCookies.phone_number == phone,
+                                    HeetchSessionCookies.invalid_at.is_(None)
+                                ).first()
+                                if session_cookies:
+                                    session_cookies.invalid_at = datetime.utcnow()
+                                    db.merge(session_cookies)
+                                    db.commit()
+                                    logger.info(f"[HEETCH] Cookies marqués comme invalides dans la DB pour {phone} (même la mémorisation ne fonctionne plus)")
+                            except Exception as e:
+                                logger.debug(f"[HEETCH] Erreur lors du marquage des cookies invalides: {e}")
+                            # Réinitialiser les cookies en mémoire
+                            self._cookies = None
+                            self._cookies_expires_at = 0.0
+                        # Continuer avec le processus de connexion complet (phone + SMS + password)
+                except Exception as e:
+                    logger.debug(f"[HEETCH] Erreur lors de la vérification du type de formulaire: {e}, continuation avec le processus normal")
+                    # En cas d'erreur, continuer avec le processus normal (phone + SMS + password)
+            
+            # Si on est sur driver.heetch.com (pas sur /login), tester avec une requête API pour confirmer
+            elif is_driver_host and not is_login_path:
+                # Vérifier que les cookies d'authentification sont présents
+                # Ces cookies sont critiques : heetch_auth_token (sur .heetch.com) et heetch_driver_session (sur driver.heetch.com)
                 cookies = await context.cookies()
-                self._cookies = cookies
-                self._cookies_expires_at = time.time() + (24 * 60 * 60)
-                # Sauvegarder les cookies mis à jour dans la DB
-                self._save_cookies_to_db(phone)
-                logger.info(f"[HEETCH] {len(cookies)} cookies mis à jour et sauvegardés dans la DB")
-                return {"status": "already_logged_in", "message": "Session restaurée depuis la DB, déjà connecté (cookies rafraîchis sans SMS)"}
+                cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+                cookie_domains = {cookie['name']: cookie.get('domain', '') for cookie in cookies}
+                
+                has_auth_token = 'heetch_auth_token' in cookie_dict
+                has_driver_session = 'heetch_driver_session' in cookie_dict
+                
+                # Log détaillé pour debugging
+                logger.info(f"[HEETCH] Cookies trouvés: {len(cookies)} cookies au total")
+                if has_auth_token:
+                    logger.info(f"[HEETCH] heetch_auth_token présent (domaine: {cookie_domains.get('heetch_auth_token', 'N/A')})")
+                if has_driver_session:
+                    logger.info(f"[HEETCH] heetch_driver_session présent (domaine: {cookie_domains.get('heetch_driver_session', 'N/A')})")
+                
+                if has_auth_token or has_driver_session:
+                    logger.info("[HEETCH] ✅ Déjà connecté grâce aux cookies restaurés depuis la DB (bypass du numéro et SMS)")
+                    # Récupérer tous les cookies (peut-être rafraîchis)
+                    self._cookies = cookies
+                    self._cookies_expires_at = time.time() + (24 * 60 * 60)
+                    # Sauvegarder les cookies mis à jour dans la DB
+                    self._save_cookies_to_db(phone)
+                    logger.info(f"[HEETCH] {len(cookies)} cookies mis à jour et sauvegardés dans la DB")
+                    return {"status": "already_logged_in", "message": "Session restaurée depuis la DB, déjà connecté (cookies rafraîchis sans SMS)"}
+                else:
+                    logger.warning("[HEETCH] Sur driver.heetch.com mais pas de token d'authentification dans les cookies, connexion nécessaire")
+                    # Marquer les cookies comme invalides si on en avait chargés depuis la DB
+                    if self._cookies:
+                        logger.warning("[HEETCH] Les cookies chargés depuis la DB ne sont pas valides (pas de token après navigation)")
+                        try:
+                            from app.core.supabase_db import SupabaseDB
+                            from app.models.heetch_session_cookies import HeetchSessionCookies
+                            from datetime import datetime
+                            db = SupabaseDB()
+                            session_cookies = db.query(HeetchSessionCookies).filter(
+                                HeetchSessionCookies.org_id == self.org_id,
+                                HeetchSessionCookies.phone_number == phone,
+                                HeetchSessionCookies.invalid_at.is_(None)
+                            ).first()
+                            if session_cookies:
+                                session_cookies.invalid_at = datetime.utcnow()
+                                db.merge(session_cookies)
+                                db.commit()
+                                logger.info(f"[HEETCH] Cookies marqués comme invalides dans la DB pour {phone}")
+                        except Exception as e:
+                            logger.debug(f"[HEETCH] Erreur lors du marquage des cookies invalides: {e}")
+                        self._cookies = None
+                        self._cookies_expires_at = 0.0
+                    # Continuer avec le processus de connexion normal
             
             # Attendre que le formulaire soit chargé avec un timeout plus long
             # Essayer d'abord le sélecteur spécifique Heetch
@@ -641,11 +875,8 @@ class HeetchClient:
                 try:
                     await page.wait_for_selector('input[type="password"]', timeout=5000)
                     logger.info("[HEETCH] Champ mot de passe détecté, le numéro est déjà mémorisé")
-                    # Sauvegarder les cookies actuels
-                    cookies = await context.cookies()
-                    self._cookies = cookies
-                    self._cookies_expires_at = time.time() + (24 * 60 * 60)
-                    self._save_cookies_to_db(phone)
+                    # Ne pas sauvegarder les cookies ici car on n'est pas encore authentifié
+                    # Les cookies seront sauvegardés après complete_login avec le mot de passe
                     return {"status": "phone_remembered", "message": "Numéro déjà mémorisé, mot de passe requis"}
                 except:
                     pass
@@ -961,8 +1192,8 @@ class HeetchClient:
                 else:
                     logger.info("[HEETCH] Bouton Continuer cliqué avec succès après résolution du captcha")
             
-            # Attendre que le SMS soit envoyé (le champ code SMS devrait apparaître)
-            logger.info("[HEETCH] Attente de la page de validation SMS...")
+            # Attendre que la page suivante apparaisse (SMS ou mot de passe)
+            logger.info("[HEETCH] Attente de la page suivante (SMS ou mot de passe)...")
             
             # Sélecteurs pour le champ code SMS
             sms_input_selectors = [
@@ -976,13 +1207,21 @@ class HeetchClient:
                 'input.f-FormEl',  # Même classe que l'input téléphone mais pour le code
             ]
             
-            # Attendre jusqu'à 15 secondes que la page SMS apparaisse
-            sms_page_detected = False
+            # Sélecteurs pour le champ mot de passe
+            password_input_selectors = [
+                'input[type="password"]',
+                'input[name*="password" i]',
+                'input[id*="password" i]',
+            ]
+            
+            # Attendre jusqu'à 15 secondes que la page suivante apparaisse
+            next_page_detected = False
+            page_type = None  # "sms" ou "password"
             max_wait_time = 15000  # 15 secondes
             check_interval = 500  # Vérifier toutes les 500ms
             elapsed_time = 0
             
-            while elapsed_time < max_wait_time and not sms_page_detected:
+            while elapsed_time < max_wait_time and not next_page_detected:
                 # Vérifier l'URL actuelle
                 current_url = page.url
                 logger.debug(f"[HEETCH] URL actuelle: {current_url}, temps écoulé: {elapsed_time}ms")
@@ -990,32 +1229,63 @@ class HeetchClient:
                 # Vérifier si on est sur une page différente (pas la page d'auth/login)
                 if ("/login" not in current_url and "auth.heetch.com" not in current_url) or "sms" in current_url.lower() or "code" in current_url.lower() or "verify" in current_url.lower() or "/dashboard" in current_url:
                     logger.info(f"[HEETCH] Page changée vers: {current_url}")
-                    sms_page_detected = True
+                    next_page_detected = True
                     break
                 
+                # Vérifier d'abord si on voit un champ mot de passe (bypass du SMS grâce aux cookies)
+                password_input = None
+                for selector in password_input_selectors:
+                    try:
+                        found_input = await page.query_selector(selector)
+                        if found_input and await found_input.is_visible():
+                            password_input = found_input
+                            break
+                    except:
+                        continue
+                
                 # Chercher les sélecteurs SMS
+                sms_input = None
                 for selector in sms_input_selectors:
                     try:
-                        sms_input = await page.query_selector(selector)
-                        if sms_input:
-                            is_visible = await sms_input.is_visible()
+                        found_input = await page.query_selector(selector)
+                        if found_input:
+                            is_visible = await found_input.is_visible()
                             if is_visible:
                                 # Vérifier que ce n'est pas le même input que le téléphone
-                                input_value = await sms_input.input_value()
+                                input_value = await found_input.input_value()
                                 if input_value != normalized_phone and input_value != phone:
-                                    sms_page_detected = True
-                                    logger.info(f"[HEETCH] Page de validation SMS détectée avec sélecteur: {selector}")
+                                    sms_input = found_input
                                     break
                     except:
                         continue
                 
-                if sms_page_detected:
+                # Si on voit un champ mot de passe mais PAS de champ SMS, les cookies permettent de bypasser le SMS
+                if password_input and not sms_input:
+                    logger.info("[HEETCH] ✅ Champ mot de passe détecté sans champ SMS : les cookies permettent de bypasser le SMS")
+                    next_page_detected = True
+                    page_type = "password"
+                    break
+                elif sms_input:
+                    logger.info(f"[HEETCH] Page de validation SMS détectée")
+                    next_page_detected = True
+                    page_type = "sms"
                     break
                 
                 await page.wait_for_timeout(check_interval)
                 elapsed_time += check_interval
             
-            if not sms_page_detected:
+            # Gérer le cas où on arrive directement sur la page de mot de passe (bypass du SMS)
+            if page_type == "password":
+                logger.info("[HEETCH] ✅ Les cookies permettent de bypasser le SMS, passage direct au mot de passe")
+                # Sauvegarder les cookies actuels (qui permettent de bypasser le SMS)
+                cookies = await context.cookies()
+                self._cookies = cookies
+                self._cookies_expires_at = time.time() + (24 * 60 * 60)
+                logger.info(f"[HEETCH] {len(cookies)} cookies sauvegardés (permettent de bypasser le SMS)")
+                # Les cookies seront sauvegardés dans la DB après complete_login avec le mot de passe
+                return {"status": "phone_filled_password_needed", "message": "Numéro rempli, les cookies permettent de bypasser le SMS. Mot de passe requis (pas de code SMS nécessaire)"}
+            
+            if not next_page_detected or page_type != "sms":
                 # Prendre une capture d'écran pour debug
                 try:
                     await page.screenshot(path="heetch_sms_error.png")
@@ -1121,12 +1391,12 @@ class HeetchClient:
             logger.error(f"[HEETCH] Erreur lors de l'envoi du SMS: {e}", exc_info=True)
             raise
     
-    def complete_login(self, sms_code: str, password: Optional[str] = None) -> bool:
+    def complete_login(self, sms_code: Optional[str] = None, password: Optional[str] = None) -> bool:
         """
-        Étape 2 : Valide le code SMS puis entre le mot de passe pour finaliser la connexion.
+        Étape 2 : Valide le code SMS (si nécessaire) puis entre le mot de passe pour finaliser la connexion.
         
         Args:
-            sms_code: Code SMS reçu par téléphone
+            sms_code: Code SMS reçu par téléphone (optionnel si le numéro est déjà mémorisé, dans ce cas le SMS est bypassé)
             password: Mot de passe (utilise HEETCH_PASSWORD si non fourni)
         
         Returns:
@@ -1192,9 +1462,14 @@ class HeetchClient:
                 logger.warning(f"[HEETCH] Erreur lors de la vérification de la page: {e}")
                 # Continuer quand même, peut-être que la page fonctionne
             
-            logger.info("[HEETCH] Validation du code SMS et connexion")
+            logger.info("[HEETCH] Validation du code SMS (si nécessaire) et connexion")
             
-            # Remplir le code SMS
+            # Vérifier si on est déjà sur la page de mot de passe (numéro mémorisé, pas besoin de SMS)
+            password_input = await page.query_selector('input[type="password"]')
+            phone_input = await page.query_selector('input.f-FormEl, input[type="tel"], input[name="phone"], input[placeholder*="téléphone" i], input[placeholder*="phone" i]')
+            sms_input = None
+            
+            # Chercher le champ SMS
             sms_input_selectors = [
                 'input[type="tel"]',
                 'input[name*="code" i]',
@@ -1203,47 +1478,69 @@ class HeetchClient:
                 'input[placeholder*="sms" i]'
             ]
             
-            sms_filled = False
             for selector in sms_input_selectors:
                 try:
-                    sms_input = await page.query_selector(selector)
-                    if sms_input and await sms_input.is_visible():
-                        await sms_input.fill(sms_code)
-                        sms_filled = True
-                        logger.info("[HEETCH] Code SMS rempli")
+                    found_input = await page.query_selector(selector)
+                    if found_input and await found_input.is_visible():
+                        sms_input = found_input
                         break
                 except:
                     continue
             
-            if not sms_filled:
-                raise RuntimeError("Impossible de trouver le champ code SMS")
+            # Déterminer si on doit remplir le SMS ou si on passe directement au mot de passe
+            skip_sms = False
+            if password_input and await password_input.is_visible():
+                if not sms_input or not await sms_input.is_visible():
+                    # Champ mot de passe présent mais pas de champ SMS = numéro mémorisé
+                    logger.info("[HEETCH] ✅ Numéro déjà mémorisé, pas besoin de code SMS (passage direct au mot de passe)")
+                    skip_sms = True
+                elif phone_input and await phone_input.is_visible():
+                    # Les deux sont présents, on doit vérifier lequel est visible en premier
+                    logger.info("[HEETCH] Formulaire complet détecté, traitement normal avec SMS")
+                else:
+                    # Seulement le mot de passe = skip SMS
+                    logger.info("[HEETCH] ✅ Numéro déjà mémorisé, pas besoin de code SMS")
+                    skip_sms = True
             
-            # Cliquer sur le bouton de validation du code
-            validate_selectors = [
-                'button[type="submit"]',
-                'button:has-text("Valider")',
-                'button:has-text("Vérifier")',
-                'button:has-text("Confirmer")',
-                'button:has-text("Continuer")'
-            ]
-            
-            validated = False
-            for selector in validate_selectors:
-                try:
-                    validate_button = await page.query_selector(selector)
-                    if validate_button and await validate_button.is_visible():
-                        await validate_button.click()
-                        validated = True
-                        logger.info(f"[HEETCH] Code SMS validé avec sélecteur: {selector}")
-                        break
-                except:
-                    continue
-            
-            if not validated:
-                raise RuntimeError("Impossible de trouver le bouton de validation du code SMS")
-            
-            # Attendre la redirection vers la page de mot de passe
-            await page.wait_for_timeout(3000)
+            if not skip_sms:
+                # Remplir le code SMS
+                if not sms_input:
+                    raise RuntimeError("Impossible de trouver le champ code SMS")
+                
+                if not sms_code:
+                    raise ValueError("Code SMS requis pour finaliser la connexion (le numéro n'est pas mémorisé)")
+                
+                await sms_input.fill(sms_code)
+                logger.info("[HEETCH] Code SMS rempli")
+                
+                # Cliquer sur le bouton de validation du code
+                validate_selectors = [
+                    'button[type="submit"]',
+                    'button:has-text("Valider")',
+                    'button:has-text("Vérifier")',
+                    'button:has-text("Confirmer")',
+                    'button:has-text("Continuer")'
+                ]
+                
+                validated = False
+                for selector in validate_selectors:
+                    try:
+                        validate_button = await page.query_selector(selector)
+                        if validate_button and await validate_button.is_visible():
+                            await validate_button.click()
+                            validated = True
+                            logger.info(f"[HEETCH] Code SMS validé avec sélecteur: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if not validated:
+                    raise RuntimeError("Impossible de trouver le bouton de validation du code SMS")
+                
+                # Attendre la redirection vers la page de mot de passe
+                await page.wait_for_timeout(3000)
+            else:
+                logger.info("[HEETCH] Étape SMS ignorée, passage direct au mot de passe")
             
             # Maintenant, chercher le champ mot de passe
             password_selectors = [

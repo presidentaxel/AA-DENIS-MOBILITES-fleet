@@ -14,17 +14,44 @@ def start_heetch_login(
     phone: Optional[str] = Query(None, description="Numéro de téléphone (utilise HEETCH_LOGIN si non fourni)"),
 ):
     """
-    Étape 1 : Envoie le SMS de validation.
-    Entre le numéro de téléphone et déclenche l'envoi du SMS.
+    Étape 1 : Démarre le processus de connexion.
+    - Si des cookies valides sont trouvés en DB, la session est restaurée automatiquement (pas de SMS nécessaire)
+    - Sinon, envoie le SMS de validation et attend le code
     """
     try:
         client = get_heetch_client(current_user["org_id"])
         result = client.start_login(phone)
-        return {
-            "status": "success",
-            "message": "SMS envoyé avec succès. Vérifiez votre téléphone pour le code.",
-            "next_step": "Appelez /heetch/auth/complete avec le code SMS et le mot de passe",
-        }
+        
+        # Si déjà connecté grâce aux cookies, retourner un message différent
+        if isinstance(result, dict) and result.get("status") == "already_logged_in":
+            return {
+                "status": "success",
+                "already_logged_in": True,
+                "message": result.get("message", "Session déjà active, cookies restaurés et mis à jour depuis la DB"),
+                "next_step": "Aucune action nécessaire, vous pouvez utiliser les endpoints de synchronisation directement",
+            }
+        elif isinstance(result, dict) and result.get("status") == "phone_remembered":
+            return {
+                "status": "success",
+                "phone_remembered": True,
+                "message": result.get("message", "Numéro déjà mémorisé grâce aux cookies, mot de passe requis (pas de SMS nécessaire)"),
+                "next_step": "Appelez /heetch/auth/complete avec uniquement le mot de passe (pas de code SMS nécessaire)",
+            }
+        elif isinstance(result, dict) and result.get("status") == "phone_filled_password_needed":
+            return {
+                "status": "success",
+                "phone_filled": True,
+                "message": result.get("message", "Numéro rempli, les cookies permettent de bypasser le SMS. Mot de passe requis (pas de code SMS nécessaire)"),
+                "next_step": "Appelez /heetch/auth/complete avec uniquement le mot de passe (pas de code SMS nécessaire)",
+            }
+        else:
+            # Flux normal : SMS envoyé
+            return {
+                "status": "success",
+                "already_logged_in": False,
+                "message": "SMS envoyé avec succès. Vérifiez votre téléphone pour le code.",
+                "next_step": "Appelez /heetch/auth/complete avec le code SMS et le mot de passe",
+            }
     except Exception as e:
         import traceback
         return {
@@ -37,12 +64,13 @@ def start_heetch_login(
 @router.post("/auth/complete")
 def complete_heetch_login(
     current_user: dict = Depends(get_current_user),
-    sms_code: str = Query(..., description="Code SMS reçu par téléphone"),
+    sms_code: Optional[str] = Query(None, description="Code SMS reçu par téléphone (optionnel si numéro déjà mémorisé)"),
     password: Optional[str] = Query(None, description="Mot de passe (utilise HEETCH_PASSWORD si non fourni)"),
 ):
     """
     Étape 2 : Finalise la connexion.
-    Valide le code SMS puis entre le mot de passe pour obtenir la session.
+    - Si le numéro est déjà mémorisé (phone_remembered), seul le mot de passe est requis (pas de SMS)
+    - Sinon, valide le code SMS puis entre le mot de passe pour obtenir la session.
     """
     try:
         client = get_heetch_client(current_user["org_id"])
@@ -52,6 +80,10 @@ def complete_heetch_login(
             client.start_login()
         except:
             pass  # Peut déjà être fait
+        
+        # Si sms_code n'est pas fourni, utiliser une valeur vide (complete_login gérera le cas)
+        if not sms_code:
+            sms_code = ""
         
         success = client.complete_login(sms_code, password)
         
